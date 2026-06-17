@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from io import StringIO
 from datetime import date
+from html import escape
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -12,14 +13,19 @@ import streamlit as st
 from analysis import (
     calculate_percent_samples_meeting_agreement,
     evaluate_acceptance_criteria,
+    evaluate_linearity_criteria,
     evaluate_precision_criteria,
     get_top_outliers,
+    run_linearity_study,
     run_precision_study,
     run_method_comparison,
 )
 from plots import (
     create_difference_plot,
+    create_linearity_plot,
+    create_linearity_residual_plot,
     create_percent_bias_histogram,
+    create_percent_recovery_plot,
     create_precision_box_plot,
     create_precision_cv_bar_chart,
     create_precision_run_chart,
@@ -28,12 +34,22 @@ from plots import (
 from report import (
     build_criteria_table,
     build_html_report,
+    build_linearity_executive_summary,
+    build_linearity_html_report,
     build_precision_html_report,
     build_summary_table,
+    criteria_table_to_badged_html,
+    format_linearity_criteria_table,
+    format_linearity_equation,
+    format_linearity_regression_summary,
+    format_linearity_summary_table,
     format_precision_criteria_table,
     format_precision_summary_table,
     generate_interpretation,
+    generate_linearity_interpretation,
     generate_precision_interpretation,
+    get_linearity_worst_case,
+    status_badge_html,
 )
 from studies import get_study_type_config, get_study_type_names
 
@@ -42,6 +58,7 @@ APP_TITLE = "Scientific Validation Analytics Platform"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "hba1c_method_comparison.csv"
 PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_study_hba1c.csv"
+LINEARITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "linearity_study_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
@@ -52,6 +69,196 @@ DASHBOARD_MODULES = (
     ("Microtainer Validation", "Small-volume specimen comparison workflows."),
     ("Validation Reports", "Scientific summary reports and review packages."),
 )
+
+
+def inject_validation_styles() -> None:
+    """Add shared styling for validation result cards and status badges."""
+
+    st.markdown(
+        """
+        <style>
+          .svap-card {
+            border: 1px solid #d9e2ec;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 14px 16px;
+            min-height: 104px;
+            box-shadow: 0 1px 2px rgba(16, 42, 67, 0.04);
+          }
+          .svap-card-label {
+            color: #52606d;
+            font-size: 0.82rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+          }
+          .svap-card-value {
+            color: #102a43;
+            font-size: 1.35rem;
+            font-weight: 700;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+          }
+          .svap-card-subtext {
+            color: #52606d;
+            font-size: 0.9rem;
+            margin-top: 6px;
+          }
+          .svap-equation {
+            border-left: 4px solid #2a6f97;
+            background: #f7f9fb;
+            border-radius: 8px;
+            padding: 16px 18px;
+            margin: 8px 0 12px;
+          }
+          .svap-equation-title {
+            color: #102a43;
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+          }
+          .svap-equation-body {
+            color: #102a43;
+            font-size: 1.25rem;
+            font-weight: 700;
+          }
+          .svap-status-table table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          .svap-status-table th, .svap-status-table td {
+            border: 1px solid #d9e2ec;
+            padding: 8px 10px;
+          }
+          .svap-status-table th {
+            background: #f0f4f8;
+            color: #102a43;
+          }
+          .svap-status-table td {
+            color: #1f2933;
+          }
+          .svap-status-table td:not(:first-child), .svap-status-table th:not(:first-child) {
+            text-align: right;
+          }
+          .svap-status-table td:nth-child(4), .svap-status-table th:nth-child(4),
+          .svap-status-table td:nth-child(5), .svap-status-table th:nth-child(5) {
+            text-align: center;
+          }
+          .status-badge {
+            border-radius: 999px;
+            display: inline-block;
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1;
+            padding: 6px 10px;
+          }
+          .status-pass {
+            background: #e3f9e5;
+            color: #1f7a1f;
+          }
+          .status-borderline {
+            background: #fff8c5;
+            color: #946200;
+          }
+          .status-fail {
+            background: #ffe3e3;
+            color: #c92a2a;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_metric_card(label: str, value: str, status: str | None = None) -> None:
+    """Render a compact validation metric card."""
+
+    value_html = status_badge_html(value) if status else escape(value)
+    st.markdown(
+        f"""
+        <div class="svap-card">
+          <div class="svap-card-label">{escape(label)}</div>
+          <div class="svap-card-value">{value_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_linearity_executive_summary(
+    level_summary: pd.DataFrame,
+    regression_summary: dict[str, float | str],
+    decision: str,
+) -> None:
+    """Render executive summary cards for a completed linearity study."""
+
+    summary_values = build_linearity_executive_summary(
+        level_summary, regression_summary, decision
+    )
+    st.subheader("Executive Summary")
+    first_row = st.columns(3)
+    with first_row[0]:
+        render_metric_card("Overall Decision", summary_values["Overall Decision"], status=decision)
+    with first_row[1]:
+        render_metric_card("R²", summary_values["R²"])
+    with first_row[2]:
+        render_metric_card("Regression Slope", summary_values["Regression Slope"])
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        render_metric_card("Maximum Absolute Bias", summary_values["Maximum Absolute Bias"])
+    with second_row[1]:
+        render_metric_card("Percent Recovery Range", summary_values["Percent Recovery Range"])
+    with second_row[2]:
+        render_metric_card("Analytical Range Tested", summary_values["Analytical Range Tested"])
+
+
+def render_linearity_equation_card(regression_summary: dict[str, float | str]) -> None:
+    """Render the regression equation card for linearity results."""
+
+    equation = format_linearity_equation(regression_summary)
+    st.markdown(
+        f"""
+        <div class="svap-equation">
+          <div class="svap-equation-title">Regression Equation</div>
+          <div class="svap-equation-body">{escape(equation)}</div>
+          <div class="svap-card-subtext">R² = {regression_summary['R²']:.4f}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_linearity_worst_case(level_summary: pd.DataFrame) -> None:
+    """Render the worst-performing linearity level summary card."""
+
+    worst_case = get_linearity_worst_case(level_summary)
+    if worst_case.empty:
+        return
+    st.markdown(
+        f"""
+        <div class="svap-equation">
+          <div class="svap-equation-title">Worst Performing Level</div>
+          <div class="svap-equation-body">{escape(str(worst_case['Level']))}</div>
+          <div class="svap-card-subtext">
+            Absolute Bias: {abs(worst_case['Percent Bias']):.2f}% &nbsp;|&nbsp;
+            Recovery: {worst_case['Percent Recovery']:.1f}% &nbsp;|&nbsp;
+            Expected: {worst_case['Expected Result']:.2f} &nbsp;|&nbsp;
+            Mean Observed: {worst_case['Mean Observed Result']:.2f}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_badged_criteria_table(criteria_table: pd.DataFrame) -> None:
+    """Render an acceptance criteria table with status badges."""
+
+    st.markdown(
+        f'<div class="svap-status-table">{criteria_table_to_badged_html(criteria_table)}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def load_uploaded_file(uploaded_file) -> pd.DataFrame:
@@ -139,17 +346,26 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
     """Render validation study documentation inputs and return collected values."""
 
     is_precision = study_type == "Precision Study"
+    is_linearity = study_type == "Linearity Study"
     default_study_name = (
-        "HbA1c Precision Study" if is_precision else "HbA1c Method Comparison Study"
+        "HbA1c Precision Study"
+        if is_precision
+        else "HbA1c Linearity Study"
+        if is_linearity
+        else "HbA1c Method Comparison Study"
     )
     default_objective = (
         "Evaluate repeatability of repeated HbA1c measurements."
         if is_precision
+        else "Evaluate proportionality of observed HbA1c results across the analytical range."
+        if is_linearity
         else "Evaluate agreement between candidate and reference results."
     )
     default_design = (
         "Repeated low-level and high-level quality control measurements across multiple days, runs, and replicates."
         if is_precision
+        else "Expected HbA1c levels measured in replicate across the reportable analytical range."
+        if is_linearity
         else "Paired specimen comparison using reference and candidate measurements."
     )
 
@@ -184,26 +400,29 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     reference_method = ""
     candidate_method = ""
-    if is_precision:
+    if is_precision or is_linearity:
         units = st.text_input("Units", value="%")
+        key_prefix = "linearity" if is_linearity else "precision"
+        instrument_name = instrument_id = laboratory_site = ""
+        reagent_lot = calibrator_lot = qc_lot = operator_name = ""
         with st.expander("Laboratory Documentation", expanded=False):
             lab_row_1 = st.columns(3)
             with lab_row_1[0]:
-                instrument_name = st.text_input("Instrument Name", key="precision_instrument_name")
+                instrument_name = st.text_input("Instrument Name", key=f"{key_prefix}_instrument_name")
             with lab_row_1[1]:
-                instrument_id = st.text_input("Instrument ID", key="precision_instrument_id")
+                instrument_id = st.text_input("Instrument ID", key=f"{key_prefix}_instrument_id")
             with lab_row_1[2]:
-                laboratory_site = st.text_input("Laboratory Site", key="precision_laboratory_site")
+                laboratory_site = st.text_input("Laboratory Site", key=f"{key_prefix}_laboratory_site")
 
             lab_row_2 = st.columns(3)
             with lab_row_2[0]:
-                reagent_lot = st.text_input("Reagent Lot Number", key="precision_reagent_lot")
+                reagent_lot = st.text_input("Reagent Lot Number", key=f"{key_prefix}_reagent_lot")
             with lab_row_2[1]:
-                calibrator_lot = st.text_input("Calibrator Lot Number", key="precision_calibrator_lot")
+                calibrator_lot = st.text_input("Calibrator Lot Number", key=f"{key_prefix}_calibrator_lot")
             with lab_row_2[2]:
-                qc_lot = st.text_input("Quality Control Lot Number", key="precision_qc_lot")
+                qc_lot = st.text_input("Quality Control Lot Number", key=f"{key_prefix}_qc_lot")
 
-            operator_name = st.text_input("Operator Name", key="precision_operator_name")
+            operator_name = st.text_input("Operator Name", key=f"{key_prefix}_operator_name")
     else:
         third_row = st.columns(3)
         with third_row[0]:
@@ -231,10 +450,10 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
-    if not is_precision:
+    if not (is_precision or is_linearity):
         metadata["Reference Method"] = reference_method
         metadata["Candidate Method"] = candidate_method
-    else:
+    elif is_precision or is_linearity:
         metadata.update(
             {
                 "Instrument Name": instrument_name,
@@ -368,6 +587,72 @@ def render_precision_criteria() -> dict[str, float]:
     return {"Maximum CV%": max_cv}
 
 
+def render_linearity_criteria() -> dict[str, float]:
+    """Render user-defined preliminary linearity acceptance criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are user-defined preliminary screening thresholds, not regulatory approval."
+    )
+    row_1 = st.columns(3)
+    with row_1[0]:
+        min_r_squared = st.number_input(
+            "Minimum acceptable R²",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.99,
+            step=0.001,
+            format="%.3f",
+        )
+    with row_1[1]:
+        slope_lower = st.number_input(
+            "Slope lower limit",
+            value=0.95,
+            step=0.01,
+            format="%.2f",
+        )
+    with row_1[2]:
+        slope_upper = st.number_input(
+            "Slope upper limit",
+            value=1.05,
+            step=0.01,
+            format="%.2f",
+        )
+
+    row_2 = st.columns(3)
+    with row_2[0]:
+        max_abs_bias = st.number_input(
+            "Maximum acceptable absolute percent bias by level",
+            min_value=0.0,
+            value=10.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row_2[1]:
+        recovery_lower = st.number_input(
+            "Percent recovery lower limit",
+            value=90.0,
+            step=1.0,
+            format="%.2f",
+        )
+    with row_2[2]:
+        recovery_upper = st.number_input(
+            "Percent recovery upper limit",
+            value=110.0,
+            step=1.0,
+            format="%.2f",
+        )
+
+    return {
+        "Minimum R²": min_r_squared,
+        "Slope Lower Limit": slope_lower,
+        "Slope Upper Limit": slope_upper,
+        "Maximum Absolute Percent Bias": max_abs_bias,
+        "Recovery Lower Limit": recovery_lower,
+        "Recovery Upper Limit": recovery_upper,
+    }
+
+
 def optional_column_selectbox(
     label: str, columns: list[str], default_column: str | None = None
 ) -> str | None:
@@ -414,6 +699,27 @@ def build_precision_summary_csv(
     if not run_summary.empty:
         buffer.write("\nRun-Level Summary\n")
         run_summary.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def build_linearity_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    level_summary: pd.DataFrame,
+    regression_summary: pd.DataFrame,
+) -> str:
+    """Build a sectioned CSV summary for linearity study documentation."""
+
+    buffer = StringIO()
+    pd.DataFrame(
+        [{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]
+    ).to_csv(buffer, index=False)
+    buffer.write("\nLinearity Summary\n")
+    level_summary.to_csv(buffer, index=False)
+    buffer.write("\nAcceptance Criteria Results\n")
+    criteria_table.to_csv(buffer, index=False)
+    buffer.write("\nRegression Summary\n")
+    regression_summary.to_csv(buffer, index=False)
     return buffer.getvalue()
 
 
@@ -540,7 +846,7 @@ def render_precision_workspace(metadata: dict[str, object]) -> None:
         st.dataframe(display_level_summary, width="stretch")
 
         st.subheader("Acceptance Criteria Results")
-        st.dataframe(display_criteria_table, width="stretch")
+        render_badged_criteria_table(display_criteria_table)
 
         if not result.day_summary.empty:
             st.subheader("Day-Level Precision Summary")
@@ -614,11 +920,223 @@ def render_precision_workspace(metadata: dict[str, object]) -> None:
             )
 
 
+def render_linearity_workspace(metadata: dict[str, object]) -> None:
+    """Render the Linearity Study workflow."""
+
+    criteria = render_linearity_criteria()
+
+    uploaded_file = st.file_uploader(
+        "Upload linearity study data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload expected and observed results across linearity levels.",
+    )
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c linearity study dataset",
+        value=uploaded_file is None,
+    )
+
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(LINEARITY_SAMPLE_DATA_PATH)
+
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+
+    st.subheader("Data Preview")
+    st.dataframe(data.head(20), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    all_columns = list(data.columns)
+    if len(numeric_columns) < 2:
+        st.error("Expected and observed numeric result columns are required.")
+        st.stop()
+
+    st.subheader("Column Selection")
+    first_row = st.columns(3)
+    with first_row[0]:
+        expected_column = st.selectbox(
+            "Expected Result column",
+            numeric_columns,
+            index=numeric_columns.index("Expected Result")
+            if "Expected Result" in numeric_columns
+            else 0,
+        )
+    with first_row[1]:
+        observed_column = st.selectbox(
+            "Observed Result column",
+            numeric_columns,
+            index=numeric_columns.index("Observed Result")
+            if "Observed Result" in numeric_columns
+            else min(1, len(numeric_columns) - 1),
+        )
+    with first_row[2]:
+        level_column = st.selectbox(
+            "Level column",
+            all_columns,
+            index=all_columns.index("Level") if "Level" in all_columns else 0,
+        )
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        replicate_column = optional_column_selectbox(
+            "Replicate column",
+            all_columns,
+            "Replicate" if "Replicate" in all_columns else None,
+        )
+    with second_row[1]:
+        units_column = optional_column_selectbox(
+            "Units column",
+            all_columns,
+            "Units" if "Units" in all_columns else None,
+        )
+    with second_row[2]:
+        include_column = optional_column_selectbox(
+            "Include in Analysis column",
+            all_columns,
+            "Include in Analysis" if "Include in Analysis" in all_columns else None,
+        )
+
+    if expected_column == observed_column:
+        st.warning("Select different expected and observed result columns.")
+
+    run_analysis = st.button("Run Linearity Analysis", type="primary")
+    if run_analysis:
+        if expected_column == observed_column:
+            st.stop()
+
+        try:
+            result = run_linearity_study(
+                data,
+                expected_column,
+                observed_column,
+                level_column,
+                replicate_column,
+                units_column,
+                include_column,
+            )
+        except Exception as exc:
+            st.error(f"Linearity analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_linearity_criteria(
+            result.level_summary,
+            result.regression_summary,
+            min_r_squared=criteria["Minimum R²"],
+            slope_lower_limit=criteria["Slope Lower Limit"],
+            slope_upper_limit=criteria["Slope Upper Limit"],
+            max_abs_percent_bias=criteria["Maximum Absolute Percent Bias"],
+            recovery_lower_limit=criteria["Recovery Lower Limit"],
+            recovery_upper_limit=criteria["Recovery Upper Limit"],
+        )
+        decision = str(criteria_result["decision"])
+        criteria_table = build_criteria_table(criteria_result)
+        display_summary = format_linearity_summary_table(result.level_summary)
+        display_criteria = format_linearity_criteria_table(criteria_table)
+        display_regression = format_linearity_regression_summary(
+            result.regression_summary
+        )
+        interpretation = generate_linearity_interpretation(
+            result.level_summary,
+            result.regression_summary,
+            criteria,
+            decision,
+            metadata,
+        )
+
+        render_linearity_executive_summary(
+            result.level_summary, result.regression_summary, decision
+        )
+
+        st.subheader("Linearity Summary Table")
+        st.dataframe(display_summary, width="stretch")
+        render_linearity_worst_case(result.level_summary)
+
+        st.subheader("Acceptance Criteria Results")
+        render_badged_criteria_table(display_criteria)
+
+        render_linearity_equation_card(result.regression_summary)
+        st.subheader("Regression Summary")
+        st.dataframe(display_regression, width="stretch")
+
+        st.subheader("Interpretation")
+        st.info(interpretation)
+
+        st.subheader("Visualizations")
+        linearity_plot = create_linearity_plot(
+            result.level_summary, result.regression_summary
+        )
+        residual_plot = create_linearity_residual_plot(
+            result.level_summary, result.regression_summary
+        )
+        recovery_plot = create_percent_recovery_plot(result.level_summary)
+        st.plotly_chart(linearity_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(residual_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(recovery_plot, width="stretch")
+
+        st.subheader("Analyzed Data")
+        st.dataframe(result.analyzed_data, width="stretch")
+
+        html_report = build_linearity_html_report(
+            result.level_summary,
+            result.regression_summary,
+            criteria_table,
+            interpretation,
+            metadata,
+            criteria,
+            decision,
+            visualization_html={
+                "Linearity Plot": linearity_plot.to_html(
+                    full_html=False, include_plotlyjs="cdn"
+                ),
+                "Residual Plot": residual_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Percent Recovery Plot": recovery_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+            },
+        )
+
+        export_left, export_right = st.columns(2)
+        with export_left:
+            st.download_button(
+                "Download linearity summary CSV",
+                data=build_linearity_summary_csv(
+                    metadata,
+                    display_criteria,
+                    display_summary,
+                    display_regression,
+                ).encode("utf-8"),
+                file_name="linearity_summary.csv",
+                mime="text/csv",
+            )
+        with export_right:
+            st.download_button(
+                "Download linearity report HTML",
+                data=html_report.encode("utf-8"),
+                file_name="linearity_study_report.html",
+                mime="text/html",
+            )
+
+
 def main() -> None:
     """Render the Streamlit interface and run selected analyses."""
 
     st.set_page_config(page_title=APP_TITLE, layout="wide")
     st.title(APP_TITLE)
+    inject_validation_styles()
     st.caption(
         "Validation analytics for assay studies and diagnostic laboratory workflows."
     )
@@ -641,6 +1159,11 @@ def main() -> None:
     if study_type == "Precision Study":
         metadata = render_study_documentation(study_type)
         render_precision_workspace(metadata)
+        st.stop()
+
+    if study_type == "Linearity Study":
+        metadata = render_study_documentation(study_type)
+        render_linearity_workspace(metadata)
         st.stop()
 
     if study_type != "Method Comparison":
@@ -766,7 +1289,7 @@ def main() -> None:
         st.dataframe(summary_table, width='stretch')
 
         st.subheader("Acceptance Criteria Results")
-        st.dataframe(criteria_table, width='stretch')
+        render_badged_criteria_table(criteria_table)
         st.metric(
             "Samples meeting agreement criteria",
             f"{percent_samples_meeting_agreement:.1f}%",

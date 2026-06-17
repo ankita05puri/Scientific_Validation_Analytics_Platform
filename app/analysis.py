@@ -35,6 +35,21 @@ class PrecisionResult:
     sample_id_column: str | None = None
 
 
+@dataclass(frozen=True)
+class LinearityResult:
+    """Container for cleaned linearity data, summaries, and regression stats."""
+
+    analyzed_data: pd.DataFrame
+    level_summary: pd.DataFrame
+    regression_summary: dict[str, float | str]
+    expected_column: str
+    observed_column: str
+    level_column: str
+    replicate_column: str | None = None
+    units_column: str | None = None
+    include_column: str | None = None
+
+
 def _safe_float(value: float) -> float:
     """Return a plain float, preserving missing values as NaN."""
 
@@ -515,4 +530,245 @@ def run_precision_study(
         run_column=run_column,
         replicate_column=replicate_column,
         sample_id_column=sample_id_column,
+    )
+
+
+def prepare_linearity_data(
+    data: pd.DataFrame,
+    expected_column: str,
+    observed_column: str,
+    level_column: str,
+    replicate_column: str | None = None,
+    units_column: str | None = None,
+    include_column: str | None = None,
+) -> pd.DataFrame:
+    """Clean linearity data and apply Include in Analysis filtering when present."""
+
+    selected_columns = [level_column, expected_column, observed_column]
+    optional_columns = [replicate_column, units_column, include_column]
+    selected_columns.extend([column for column in optional_columns if column])
+    selected_columns = list(dict.fromkeys(selected_columns))
+
+    linearity_data = data[selected_columns].copy()
+    rename_map = {
+        level_column: "Level",
+        expected_column: "Expected Result",
+        observed_column: "Observed Result",
+    }
+    if replicate_column:
+        rename_map[replicate_column] = "Replicate"
+    if units_column:
+        rename_map[units_column] = "Units"
+    if include_column:
+        rename_map[include_column] = "Include in Analysis"
+
+    linearity_data = linearity_data.rename(columns=rename_map)
+    if "Include in Analysis" in linearity_data.columns:
+        include_values = (
+            linearity_data["Include in Analysis"].astype(str).str.strip().str.lower()
+        )
+        linearity_data = linearity_data[include_values.isin(["yes", "y", "true", "1"])]
+
+    linearity_data["Expected Result"] = pd.to_numeric(
+        linearity_data["Expected Result"], errors="coerce"
+    )
+    linearity_data["Observed Result"] = pd.to_numeric(
+        linearity_data["Observed Result"], errors="coerce"
+    )
+    if "Replicate" in linearity_data.columns:
+        linearity_data["Replicate"] = pd.to_numeric(
+            linearity_data["Replicate"], errors="coerce"
+        )
+    return linearity_data.dropna(
+        subset=["Level", "Expected Result", "Observed Result"]
+    ).reset_index(drop=True)
+
+
+def calculate_linearity_summary(analyzed_data: pd.DataFrame) -> pd.DataFrame:
+    """Calculate per-level linearity recovery and bias summaries."""
+
+    if analyzed_data.empty:
+        raise ValueError("No valid linearity rows are available for analysis.")
+
+    summary = (
+        analyzed_data.groupby(["Level", "Expected Result"], dropna=False)[
+            "Observed Result"
+        ]
+        .agg(N="count", **{"Mean Observed Result": "mean"})
+        .reset_index()
+    )
+    summary["Difference"] = (
+        summary["Mean Observed Result"] - summary["Expected Result"]
+    )
+    summary["Percent Recovery"] = np.where(
+        summary["Expected Result"] != 0,
+        (summary["Mean Observed Result"] / summary["Expected Result"]) * 100,
+        np.nan,
+    )
+    summary["Percent Bias"] = np.where(
+        summary["Expected Result"] != 0,
+        (summary["Difference"] / summary["Expected Result"]) * 100,
+        np.nan,
+    )
+    return summary.sort_values("Expected Result").reset_index(drop=True)
+
+
+def calculate_linearity_regression(level_summary: pd.DataFrame) -> dict[str, float | str]:
+    """Calculate regression statistics across linearity levels."""
+
+    expected = level_summary["Expected Result"]
+    observed = level_summary["Mean Observed Result"]
+    if len(level_summary) >= 2 and expected.nunique() > 1 and observed.nunique() > 1:
+        slope, intercept = np.polyfit(expected, observed, 1)
+        correlation_r = float(np.corrcoef(expected, observed)[0, 1])
+    else:
+        slope = np.nan
+        intercept = np.nan
+        correlation_r = np.nan
+
+    r_squared = correlation_r**2 if not pd.isna(correlation_r) else np.nan
+    min_expected = expected.min()
+    max_expected = expected.max()
+    return {
+        "Slope": _safe_float(slope),
+        "Intercept": _safe_float(intercept),
+        "Correlation r": _safe_float(correlation_r),
+        "R²": _safe_float(r_squared),
+        "Minimum Expected Result": _safe_float(min_expected),
+        "Maximum Expected Result": _safe_float(max_expected),
+        "Analytical Range Tested": f"{min_expected:.2f} to {max_expected:.2f}",
+    }
+
+
+def evaluate_linearity_criteria(
+    level_summary: pd.DataFrame,
+    regression_summary: dict[str, float | str],
+    min_r_squared: float,
+    slope_lower_limit: float,
+    slope_upper_limit: float,
+    max_abs_percent_bias: float,
+    recovery_lower_limit: float,
+    recovery_upper_limit: float,
+) -> dict[str, object]:
+    """Evaluate user-defined preliminary linearity acceptance criteria."""
+
+    checks = []
+    r_squared = regression_summary.get("R²", np.nan)
+    checks.append(
+        {
+            "Criterion": "R²",
+            "Observed": r_squared,
+            "Acceptance Limit": f">= {min_r_squared:g}",
+            "Met": not pd.isna(r_squared) and r_squared >= min_r_squared,
+            "Borderline": (
+                not pd.isna(r_squared)
+                and r_squared < min_r_squared
+                and r_squared >= min_r_squared - 0.005
+            ),
+        }
+    )
+
+    slope = regression_summary.get("Slope", np.nan)
+    checks.append(
+        {
+            "Criterion": "Regression slope",
+            "Observed": slope,
+            "Acceptance Limit": f"{slope_lower_limit:g} to {slope_upper_limit:g}",
+            "Met": (
+                not pd.isna(slope)
+                and slope_lower_limit <= slope <= slope_upper_limit
+            ),
+            "Borderline": (
+                not pd.isna(slope)
+                and slope_lower_limit * 0.99 <= slope <= slope_upper_limit * 1.01
+                and not (slope_lower_limit <= slope <= slope_upper_limit)
+            ),
+        }
+    )
+
+    max_observed_bias = level_summary["Percent Bias"].abs().max()
+    checks.append(
+        {
+            "Criterion": "Maximum absolute percent bias by level",
+            "Observed": max_observed_bias,
+            "Acceptance Limit": f"<= {max_abs_percent_bias:g}%",
+            "Met": (
+                not pd.isna(max_observed_bias)
+                and max_observed_bias <= max_abs_percent_bias
+            ),
+            "Borderline": (
+                not pd.isna(max_observed_bias)
+                and max_observed_bias > max_abs_percent_bias
+                and max_observed_bias <= max_abs_percent_bias * 1.10
+            ),
+        }
+    )
+
+    min_recovery = level_summary["Percent Recovery"].min()
+    max_recovery = level_summary["Percent Recovery"].max()
+    checks.append(
+        {
+            "Criterion": "Percent recovery range",
+            "Observed": f"{min_recovery:.2f}% to {max_recovery:.2f}%",
+            "Acceptance Limit": f"{recovery_lower_limit:g}% to {recovery_upper_limit:g}%",
+            "Met": (
+                not pd.isna(min_recovery)
+                and not pd.isna(max_recovery)
+                and min_recovery >= recovery_lower_limit
+                and max_recovery <= recovery_upper_limit
+            ),
+            "Borderline": (
+                not pd.isna(min_recovery)
+                and not pd.isna(max_recovery)
+                and min_recovery >= recovery_lower_limit - 2
+                and max_recovery <= recovery_upper_limit + 2
+                and not (
+                    min_recovery >= recovery_lower_limit
+                    and max_recovery <= recovery_upper_limit
+                )
+            ),
+        }
+    )
+
+    if all(check["Met"] for check in checks):
+        decision = "PASS"
+    elif all(check["Met"] or check["Borderline"] for check in checks):
+        decision = "BORDERLINE"
+    else:
+        decision = "FAIL"
+    return {"decision": decision, "checks": checks}
+
+
+def run_linearity_study(
+    data: pd.DataFrame,
+    expected_column: str,
+    observed_column: str,
+    level_column: str,
+    replicate_column: str | None = None,
+    units_column: str | None = None,
+    include_column: str | None = None,
+) -> LinearityResult:
+    """Run the complete linearity study workflow."""
+
+    analyzed_data = prepare_linearity_data(
+        data,
+        expected_column,
+        observed_column,
+        level_column,
+        replicate_column,
+        units_column,
+        include_column,
+    )
+    level_summary = calculate_linearity_summary(analyzed_data)
+    regression_summary = calculate_linearity_regression(level_summary)
+    return LinearityResult(
+        analyzed_data=analyzed_data,
+        level_summary=level_summary,
+        regression_summary=regression_summary,
+        expected_column=expected_column,
+        observed_column=observed_column,
+        level_column=level_column,
+        replicate_column=replicate_column,
+        units_column=units_column,
+        include_column=include_column,
     )

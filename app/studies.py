@@ -47,6 +47,22 @@ PRECISION_REPORT_SECTIONS = (
 )
 
 
+LINEARITY_REPORT_SECTIONS = (
+    "Study Metadata",
+    "Study Objective",
+    "Study Design",
+    "Acceptance Criteria",
+    "Linearity Summary Table",
+    "Acceptance Criteria Results",
+    "Regression Summary",
+    "Visualizations",
+    "Interpretation",
+    "Notes / Deviations",
+    "Preliminary Conclusion",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -99,13 +115,33 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
         report_sections=PRECISION_REPORT_SECTIONS,
         implemented=True,
     ),
-    "Linearity": StudyTypeConfig(
-        name="Linearity",
-        description="Placeholder module for linearity verification.",
-        metrics=("Slope", "Intercept", "R²", "Recovery by level"),
-        acceptance_criteria=("Minimum R²", "Recovery limits"),
-        visualizations=("Linearity plots",),
-        report_sections=STANDARD_REPORT_SECTIONS,
+    "Linearity Study": StudyTypeConfig(
+        name="Linearity Study",
+        description="Expected-versus-observed analytical range linearity workflow.",
+        metrics=(
+            "N",
+            "Mean observed result",
+            "Percent recovery",
+            "Percent bias",
+            "Slope",
+            "Intercept",
+            "Correlation r",
+            "R²",
+            "Analytical range tested",
+        ),
+        acceptance_criteria=(
+            "Minimum R²",
+            "Slope limits",
+            "Maximum absolute percent bias by level",
+            "Percent recovery range",
+        ),
+        visualizations=(
+            "Linearity plot",
+            "Residual plot",
+            "Percent recovery plot",
+        ),
+        report_sections=LINEARITY_REPORT_SECTIONS,
+        implemented=True,
     ),
     "Stability": StudyTypeConfig(
         name="Stability",

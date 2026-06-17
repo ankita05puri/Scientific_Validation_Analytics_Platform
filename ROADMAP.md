@@ -15,8 +15,16 @@
 
 ## v0.3.0
 
-- Accuracy Studies
-- Recovery Analysis
+- Linearity Studies
+- Analytical range evaluation
+- Recovery and bias by level
+
+## v0.3.1
+
+- Linearity Study presentation polish
+- Executive summary cards
+- Regression equation display
+- Report readability improvements
 
 ## v0.4.0
 
