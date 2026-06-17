@@ -123,3 +123,59 @@ def create_difference_plot(analyzed_data: pd.DataFrame) -> go.Figure:
     )
     figure.add_hline(y=0, line_color="#808080", line_width=1)
     return figure
+
+
+def create_precision_run_chart(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create a run chart for repeated precision measurements."""
+
+    hover_columns = [
+        column
+        for column in ["Sample ID", "Day", "Run", "Replicate", "Result"]
+        if column in analyzed_data.columns
+    ]
+    figure = px.line(
+        analyzed_data,
+        x="Measurement Order",
+        y="Result",
+        color="Level",
+        markers=True,
+        hover_data=hover_columns,
+        title="Precision Run Chart",
+        labels={"Result": "Result", "Measurement Order": "Measurement Order"},
+        template="plotly_white",
+    )
+    return figure
+
+
+def create_precision_cv_bar_chart(level_summary: pd.DataFrame) -> go.Figure:
+    """Create a precision summary bar chart showing CV% by level."""
+
+    figure = px.bar(
+        level_summary,
+        x="Level",
+        y="CV%",
+        text="CV%",
+        title="Precision Summary by Level",
+        labels={"CV%": "CV%"},
+        template="plotly_white",
+    )
+    figure.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+    figure.update_layout(yaxis_title="CV%", uniformtext_minsize=8)
+    return figure
+
+
+def create_precision_box_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create a box plot showing result distribution by level."""
+
+    figure = px.box(
+        analyzed_data,
+        x="Level",
+        y="Result",
+        color="Level",
+        points="all",
+        title="Precision Result Distribution",
+        labels={"Result": "Result"},
+        template="plotly_white",
+    )
+    figure.update_layout(showlegend=False)
+    return figure

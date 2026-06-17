@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from datetime import date
 from pathlib import Path
 
@@ -11,19 +12,28 @@ import streamlit as st
 from analysis import (
     calculate_percent_samples_meeting_agreement,
     evaluate_acceptance_criteria,
+    evaluate_precision_criteria,
     get_top_outliers,
+    run_precision_study,
     run_method_comparison,
 )
 from plots import (
     create_difference_plot,
     create_percent_bias_histogram,
+    create_precision_box_plot,
+    create_precision_cv_bar_chart,
+    create_precision_run_chart,
     create_scatter_plot,
 )
 from report import (
     build_criteria_table,
     build_html_report,
+    build_precision_html_report,
     build_summary_table,
+    format_precision_criteria_table,
+    format_precision_summary_table,
     generate_interpretation,
+    generate_precision_interpretation,
 )
 from studies import get_study_type_config, get_study_type_names
 
@@ -31,6 +41,7 @@ from studies import get_study_type_config, get_study_type_names
 APP_TITLE = "Scientific Validation Analytics Platform"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "hba1c_method_comparison.csv"
+PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_study_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
@@ -124,15 +135,30 @@ def render_study_type_selector() -> str:
     return study_type
 
 
-def render_study_documentation() -> dict[str, object]:
+def render_study_documentation(study_type: str) -> dict[str, object]:
     """Render validation study documentation inputs and return collected values."""
+
+    is_precision = study_type == "Precision Study"
+    default_study_name = (
+        "HbA1c Precision Study" if is_precision else "HbA1c Method Comparison Study"
+    )
+    default_objective = (
+        "Evaluate repeatability of repeated HbA1c measurements."
+        if is_precision
+        else "Evaluate agreement between candidate and reference results."
+    )
+    default_design = (
+        "Repeated low-level and high-level quality control measurements across multiple days, runs, and replicates."
+        if is_precision
+        else "Paired specimen comparison using reference and candidate measurements."
+    )
 
     st.subheader("Validation Study Documentation")
     first_row = st.columns(3)
     with first_row[0]:
         study_name = st.text_input(
             "Study Name",
-            value="HbA1c Method Comparison Study",
+            value=default_study_name,
         )
     with first_row[1]:
         analyst_name = st.text_input("Analyst Name")
@@ -141,12 +167,12 @@ def render_study_documentation() -> dict[str, object]:
 
     study_objective = st.text_area(
         "Study Objective",
-        value="Evaluate agreement between candidate and reference results.",
+        value=default_objective,
         height=80,
     )
     study_design = st.text_area(
         "Study Design",
-        value="Paired specimen comparison using reference and candidate measurements.",
+        value=default_design,
         height=80,
     )
 
@@ -156,26 +182,47 @@ def render_study_documentation() -> dict[str, object]:
     with second_row[1]:
         specimen_type = st.text_input("Specimen Type", value="Whole blood")
 
-    third_row = st.columns(3)
-    with third_row[0]:
-        reference_method = st.text_input("Reference Method", value="Reference HbA1c")
-    with third_row[1]:
-        candidate_method = st.text_input("Candidate Method", value="Candidate HbA1c")
-    with third_row[2]:
+    reference_method = ""
+    candidate_method = ""
+    if is_precision:
         units = st.text_input("Units", value="%")
+        with st.expander("Laboratory Documentation", expanded=False):
+            lab_row_1 = st.columns(3)
+            with lab_row_1[0]:
+                instrument_name = st.text_input("Instrument Name", key="precision_instrument_name")
+            with lab_row_1[1]:
+                instrument_id = st.text_input("Instrument ID", key="precision_instrument_id")
+            with lab_row_1[2]:
+                laboratory_site = st.text_input("Laboratory Site", key="precision_laboratory_site")
+
+            lab_row_2 = st.columns(3)
+            with lab_row_2[0]:
+                reagent_lot = st.text_input("Reagent Lot Number", key="precision_reagent_lot")
+            with lab_row_2[1]:
+                calibrator_lot = st.text_input("Calibrator Lot Number", key="precision_calibrator_lot")
+            with lab_row_2[2]:
+                qc_lot = st.text_input("Quality Control Lot Number", key="precision_qc_lot")
+
+            operator_name = st.text_input("Operator Name", key="precision_operator_name")
+    else:
+        third_row = st.columns(3)
+        with third_row[0]:
+            reference_method = st.text_input("Reference Method", value="Reference HbA1c")
+        with third_row[1]:
+            candidate_method = st.text_input("Candidate Method", value="Candidate HbA1c")
+        with third_row[2]:
+            units = st.text_input("Units", value="%")
 
     notes = st.text_area("Notes", height=80)
     deviations = st.text_area("Deviations", height=80)
     conclusions = st.text_area("Conclusions", height=80)
 
-    return {
+    metadata = {
         "Study Name": study_name,
         "Study Objective": study_objective,
         "Study Design": study_design,
         "Assay / Biomarker": assay_name,
         "Specimen Type": specimen_type,
-        "Reference Method": reference_method,
-        "Candidate Method": candidate_method,
         "Analyst Name": analyst_name,
         "Study Date": study_date.isoformat(),
         "Sample Count": "Calculated after analysis",
@@ -184,12 +231,28 @@ def render_study_documentation() -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
+    if not is_precision:
+        metadata["Reference Method"] = reference_method
+        metadata["Candidate Method"] = candidate_method
+    else:
+        metadata.update(
+            {
+                "Instrument Name": instrument_name,
+                "Instrument ID": instrument_id,
+                "Reagent Lot Number": reagent_lot,
+                "Calibrator Lot Number": calibrator_lot,
+                "Quality Control Lot Number": qc_lot,
+                "Operator Name": operator_name,
+                "Laboratory Site": laboratory_site,
+            }
+        )
+    return metadata
 
 
 def render_method_comparison_criteria() -> dict[str, float | None]:
     """Render user-defined preliminary acceptance criteria controls."""
 
-    st.subheader("User-Defined Preliminary Acceptance Criteria")
+    st.subheader("Acceptance Criteria")
     st.caption(
         "These criteria are preliminary screening thresholds selected by the user."
     )
@@ -288,15 +351,267 @@ def render_method_comparison_criteria() -> dict[str, float | None]:
     }
 
 
+def render_precision_criteria() -> dict[str, float]:
+    """Render user-defined preliminary precision acceptance criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are preliminary screening thresholds selected by the user, not regulatory approval."
+    )
+    max_cv = st.number_input(
+        "Maximum acceptable CV%",
+        min_value=0.0,
+        value=5.0,
+        step=0.5,
+        format="%.2f",
+    )
+    return {"Maximum CV%": max_cv}
+
+
+def optional_column_selectbox(
+    label: str, columns: list[str], default_column: str | None = None
+) -> str | None:
+    """Render a selectbox that can return no selected column."""
+
+    options = ["None"] + columns
+    default_index = options.index(default_column) if default_column in options else 0
+    selected = st.selectbox(label, options, index=default_index)
+    return None if selected == "None" else selected
+
+
 def show_decision(decision: str) -> None:
     """Display the preliminary decision with simple visual emphasis."""
 
     if decision == "PASS":
         st.success("Overall preliminary decision: PASS")
-    elif decision == "BORDERLINE":
-        st.warning("Overall preliminary decision: BORDERLINE")
+    elif decision in {"BORDERLINE", "REVIEW"}:
+        st.warning(f"Overall preliminary decision: {decision}")
     else:
-        st.error("Overall preliminary decision: FAIL")
+        label = "INVESTIGATE" if decision == "INVESTIGATE" else "FAIL"
+        st.error(f"Overall preliminary decision: {label}")
+
+
+def build_precision_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    level_summary: pd.DataFrame,
+    day_summary: pd.DataFrame,
+    run_summary: pd.DataFrame,
+) -> str:
+    """Build a sectioned CSV summary for precision study documentation."""
+
+    buffer = StringIO()
+    pd.DataFrame(
+        [{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]
+    ).to_csv(buffer, index=False)
+    buffer.write("\nAcceptance Criteria Results\n")
+    criteria_table.to_csv(buffer, index=False)
+    buffer.write("\nPrecision Summary\n")
+    level_summary.to_csv(buffer, index=False)
+    if not day_summary.empty:
+        buffer.write("\nDay-Level Summary\n")
+        day_summary.to_csv(buffer, index=False)
+    if not run_summary.empty:
+        buffer.write("\nRun-Level Summary\n")
+        run_summary.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def render_precision_workspace(metadata: dict[str, object]) -> None:
+    """Render the Precision Study workflow."""
+
+    criteria = render_precision_criteria()
+
+    uploaded_file = st.file_uploader(
+        "Upload repeated-measurement precision data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload a file containing repeated results by level, day, run, and replicate.",
+    )
+
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c precision study dataset",
+        value=uploaded_file is None,
+    )
+
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(PRECISION_SAMPLE_DATA_PATH)
+
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+
+    st.subheader("Data Preview")
+    st.dataframe(data.head(20), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    if len(numeric_columns) < 1:
+        st.error("At least one numeric result column is required for precision analysis.")
+        st.stop()
+
+    all_columns = list(data.columns)
+    detected_sample_id = detect_sample_id_column(data)
+
+    st.subheader("Column Selection")
+    first_row = st.columns(3)
+    with first_row[0]:
+        result_column = st.selectbox(
+            "Result column",
+            numeric_columns,
+            index=numeric_columns.index("Result") if "Result" in numeric_columns else 0,
+        )
+    with first_row[1]:
+        level_column = st.selectbox(
+            "Level column",
+            all_columns,
+            index=all_columns.index("Level") if "Level" in all_columns else 0,
+        )
+    with first_row[2]:
+        sample_id_column = optional_column_selectbox(
+            "Sample ID column (optional)",
+            all_columns,
+            detected_sample_id,
+        )
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        day_column = optional_column_selectbox(
+            "Day column",
+            all_columns,
+            "Day" if "Day" in all_columns else None,
+        )
+    with second_row[1]:
+        run_column = optional_column_selectbox(
+            "Run column",
+            all_columns,
+            "Run" if "Run" in all_columns else None,
+        )
+    with second_row[2]:
+        replicate_column = optional_column_selectbox(
+            "Replicate column",
+            all_columns,
+            "Replicate" if "Replicate" in all_columns else None,
+        )
+
+    run_analysis = st.button("Run Precision Analysis", type="primary")
+
+    if run_analysis:
+        try:
+            result = run_precision_study(
+                data=data,
+                result_column=result_column,
+                level_column=level_column,
+                day_column=day_column,
+                run_column=run_column,
+                replicate_column=replicate_column,
+                sample_id_column=sample_id_column,
+            )
+        except Exception as exc:
+            st.error(f"Precision analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_precision_criteria(
+            result.level_summary,
+            max_acceptable_cv=criteria["Maximum CV%"],
+        )
+        decision = str(criteria_result["decision"])
+        criteria_table = build_criteria_table(criteria_result)
+        display_level_summary = format_precision_summary_table(result.level_summary)
+        display_day_summary = format_precision_summary_table(result.day_summary)
+        display_run_summary = format_precision_summary_table(result.run_summary)
+        display_criteria_table = format_precision_criteria_table(criteria_table)
+        interpretation = generate_precision_interpretation(
+            result.level_summary,
+            metadata,
+            criteria["Maximum CV%"],
+            decision,
+        )
+
+        st.subheader("Precision Summary")
+        show_decision(decision)
+        st.dataframe(display_level_summary, width="stretch")
+
+        st.subheader("Acceptance Criteria Results")
+        st.dataframe(display_criteria_table, width="stretch")
+
+        if not result.day_summary.empty:
+            st.subheader("Day-Level Precision Summary")
+            st.dataframe(display_day_summary, width="stretch")
+
+        if not result.run_summary.empty:
+            st.subheader("Run-Level Precision Summary")
+            st.dataframe(display_run_summary, width="stretch")
+
+        st.subheader("Interpretation")
+        st.info(interpretation)
+
+        st.subheader("Visualizations")
+        run_chart = create_precision_run_chart(result.analyzed_data)
+        cv_bar_chart = create_precision_cv_bar_chart(result.level_summary)
+        box_plot = create_precision_box_plot(result.analyzed_data)
+        st.plotly_chart(run_chart, width="stretch")
+
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(cv_bar_chart, width="stretch")
+        with chart_right:
+            st.plotly_chart(box_plot, width="stretch")
+
+        st.subheader("Analyzed Data")
+        st.dataframe(result.analyzed_data, width="stretch")
+
+        html_report = build_precision_html_report(
+            level_summary=result.level_summary,
+            day_summary=result.day_summary,
+            run_summary=result.run_summary,
+            analyzed_data=result.analyzed_data,
+            criteria_table=criteria_table,
+            interpretation=interpretation,
+            metadata=metadata,
+            max_acceptable_cv=criteria["Maximum CV%"],
+            decision=decision,
+            visualization_html={
+                "Precision Run Chart": run_chart.to_html(
+                    full_html=False, include_plotlyjs="cdn"
+                ),
+                "Precision CV% Bar Chart": cv_bar_chart.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Precision Box Plot": box_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+            },
+        )
+
+        export_left, export_right = st.columns(2)
+        with export_left:
+            st.download_button(
+                "Download precision summary CSV",
+                data=build_precision_summary_csv(
+                    metadata,
+                    display_criteria_table,
+                    display_level_summary,
+                    display_day_summary,
+                    display_run_summary,
+                ).encode("utf-8"),
+                file_name="precision_summary.csv",
+                mime="text/csv",
+            )
+        with export_right:
+            st.download_button(
+                "Download precision report HTML",
+                data=html_report.encode("utf-8"),
+                file_name="precision_study_report.html",
+                mime="text/html",
+            )
 
 
 def main() -> None:
@@ -305,7 +620,7 @@ def main() -> None:
     st.set_page_config(page_title=APP_TITLE, layout="wide")
     st.title(APP_TITLE)
     st.caption(
-        "V1 method-comparison analytics for validation studies and diagnostic laboratory workflows."
+        "Validation analytics for assay studies and diagnostic laboratory workflows."
     )
 
     page = st.sidebar.radio(
@@ -322,12 +637,16 @@ def main() -> None:
         st.info("Report archive and report management workflows are planned for a future module.")
         st.stop()
 
-    render_dashboard()
     study_type = render_study_type_selector()
+    if study_type == "Precision Study":
+        metadata = render_study_documentation(study_type)
+        render_precision_workspace(metadata)
+        st.stop()
+
     if study_type != "Method Comparison":
         st.stop()
 
-    metadata = render_study_documentation()
+    metadata = render_study_documentation(study_type)
     criteria = render_method_comparison_criteria()
 
     uploaded_file = st.file_uploader(

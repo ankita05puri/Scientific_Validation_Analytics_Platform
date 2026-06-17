@@ -19,6 +19,22 @@ class AnalysisResult:
     sample_id_column: str | None = None
 
 
+@dataclass(frozen=True)
+class PrecisionResult:
+    """Container for cleaned precision data and precision summaries."""
+
+    analyzed_data: pd.DataFrame
+    level_summary: pd.DataFrame
+    day_summary: pd.DataFrame
+    run_summary: pd.DataFrame
+    result_column: str
+    level_column: str
+    day_column: str | None = None
+    run_column: str | None = None
+    replicate_column: str | None = None
+    sample_id_column: str | None = None
+
+
 def _safe_float(value: float) -> float:
     """Return a plain float, preserving missing values as NaN."""
 
@@ -339,5 +355,164 @@ def run_method_comparison(
         summary=summary,
         reference_column=reference_column,
         candidate_column=candidate_column,
+        sample_id_column=sample_id_column,
+    )
+
+
+def _precision_summary_by(data: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
+    """Summarize precision measurements by one or more grouping columns."""
+
+    summary = (
+        data.groupby(group_columns, dropna=False)["Result"]
+        .agg(N="count", Mean="mean", SD="std")
+        .reset_index()
+    )
+    summary["CV%"] = np.where(summary["Mean"] != 0, (summary["SD"] / summary["Mean"]) * 100, np.nan)
+    summary["Classification"] = summary["CV%"].apply(classify_precision_cv)
+    return summary
+
+
+def classify_precision_cv(cv_value: float) -> str:
+    """Classify precision performance from an observed CV% value."""
+
+    if pd.isna(cv_value):
+        return "Not available"
+    if cv_value < 1.0:
+        return "Excellent"
+    if cv_value < 3.0:
+        return "Good"
+    if cv_value <= 5.0:
+        return "Acceptable"
+    return "Investigate"
+
+
+def prepare_precision_data(
+    data: pd.DataFrame,
+    result_column: str,
+    level_column: str,
+    day_column: str | None = None,
+    run_column: str | None = None,
+    replicate_column: str | None = None,
+    sample_id_column: str | None = None,
+) -> pd.DataFrame:
+    """Clean repeated-measurement data for precision study analysis."""
+
+    selected_columns = [result_column, level_column]
+    optional_columns = [sample_id_column, day_column, run_column, replicate_column]
+    selected_columns.extend([column for column in optional_columns if column])
+    selected_columns = list(dict.fromkeys(selected_columns))
+
+    precision_data = data[selected_columns].copy()
+    rename_map = {
+        result_column: "Result",
+        level_column: "Level",
+    }
+    if sample_id_column:
+        rename_map[sample_id_column] = "Sample ID"
+    if day_column:
+        rename_map[day_column] = "Day"
+    if run_column:
+        rename_map[run_column] = "Run"
+    if replicate_column:
+        rename_map[replicate_column] = "Replicate"
+
+    precision_data = precision_data.rename(columns=rename_map)
+    precision_data["Result"] = pd.to_numeric(precision_data["Result"], errors="coerce")
+    for column in ["Day", "Run", "Replicate"]:
+        if column in precision_data.columns:
+            precision_data[column] = pd.to_numeric(precision_data[column], errors="coerce")
+
+    precision_data = precision_data.dropna(subset=["Result", "Level"]).reset_index(drop=True)
+    precision_data["Measurement Order"] = np.arange(1, len(precision_data) + 1)
+    return precision_data
+
+
+def calculate_precision_summary(analyzed_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Calculate simple precision summaries by level, day, and run."""
+
+    if analyzed_data.empty:
+        raise ValueError("No valid repeated numeric results are available for analysis.")
+
+    level_summary = _precision_summary_by(analyzed_data, ["Level"])
+
+    day_summary = pd.DataFrame()
+    if "Day" in analyzed_data.columns:
+        day_summary = _precision_summary_by(analyzed_data, ["Level", "Day"])
+
+    run_summary = pd.DataFrame()
+    run_group_columns = [column for column in ["Level", "Day", "Run"] if column in analyzed_data.columns]
+    if "Run" in run_group_columns:
+        run_summary = _precision_summary_by(analyzed_data, run_group_columns)
+
+    return level_summary, day_summary, run_summary
+
+
+def evaluate_precision_criteria(
+    level_summary: pd.DataFrame, max_acceptable_cv: float
+) -> dict[str, object]:
+    """Evaluate preliminary precision acceptance criteria by level."""
+
+    checks = []
+    for _, row in level_summary.iterrows():
+        observed_cv = row["CV%"]
+        checks.append(
+            {
+                "Criterion": f"{row['Level']} CV%",
+                "Observed": observed_cv,
+                "Acceptance Limit": f"<= {max_acceptable_cv:g}%",
+                "Classification": row.get("Classification", classify_precision_cv(observed_cv)),
+                "Met": not pd.isna(observed_cv) and observed_cv <= max_acceptable_cv,
+                "Borderline": (
+                    not pd.isna(observed_cv)
+                    and observed_cv > max_acceptable_cv
+                    and observed_cv <= max_acceptable_cv * 1.20
+                ),
+            }
+        )
+
+    if all(check["Met"] for check in checks):
+        decision = "PASS"
+    elif all(check["Met"] or check["Borderline"] for check in checks):
+        decision = "REVIEW"
+    else:
+        decision = "INVESTIGATE"
+
+    return {
+        "decision": decision,
+        "checks": checks,
+    }
+
+
+def run_precision_study(
+    data: pd.DataFrame,
+    result_column: str,
+    level_column: str,
+    day_column: str | None = None,
+    run_column: str | None = None,
+    replicate_column: str | None = None,
+    sample_id_column: str | None = None,
+) -> PrecisionResult:
+    """Run the complete simple precision study workflow."""
+
+    analyzed_data = prepare_precision_data(
+        data=data,
+        result_column=result_column,
+        level_column=level_column,
+        day_column=day_column,
+        run_column=run_column,
+        replicate_column=replicate_column,
+        sample_id_column=sample_id_column,
+    )
+    level_summary, day_summary, run_summary = calculate_precision_summary(analyzed_data)
+    return PrecisionResult(
+        analyzed_data=analyzed_data,
+        level_summary=level_summary,
+        day_summary=day_summary,
+        run_summary=run_summary,
+        result_column=result_column,
+        level_column=level_column,
+        day_column=day_column,
+        run_column=run_column,
+        replicate_column=replicate_column,
         sample_id_column=sample_id_column,
     )

@@ -32,6 +32,21 @@ STANDARD_REPORT_SECTIONS = (
 )
 
 
+PRECISION_REPORT_SECTIONS = (
+    "Study Metadata",
+    "Acceptance Criteria",
+    "Precision Summary",
+    "Day-Level Summary",
+    "Run-Level Summary",
+    "Visualizations",
+    "Interpretation",
+    "Analyst Notes",
+    "Deviations",
+    "Preliminary Conclusion",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -71,13 +86,18 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
         visualizations=("Accuracy trend plots",),
         report_sections=STANDARD_REPORT_SECTIONS,
     ),
-    "Precision": StudyTypeConfig(
-        name="Precision",
-        description="Placeholder module for intra-assay and inter-assay precision.",
-        metrics=("Mean", "SD", "CV%", "Within-run precision", "Between-run precision"),
-        acceptance_criteria=("Maximum CV%", "Maximum SD"),
-        visualizations=("Precision summary plots",),
-        report_sections=STANDARD_REPORT_SECTIONS,
+    "Precision Study": StudyTypeConfig(
+        name="Precision Study",
+        description="Repeated-measurement precision workflow for assay validation.",
+        metrics=("N", "Mean", "SD", "CV%", "Level/day/run summaries"),
+        acceptance_criteria=("Maximum acceptable CV%",),
+        visualizations=(
+            "Precision run chart",
+            "CV% summary bar chart",
+            "Result distribution box plot",
+        ),
+        report_sections=PRECISION_REPORT_SECTIONS,
+        implemented=True,
     ),
     "Linearity": StudyTypeConfig(
         name="Linearity",
