@@ -1441,3 +1441,111 @@ def create_dbs_instrument_recovery_plot(instrument_summary: pd.DataFrame) -> go.
     )
     figure.add_hline(y=100, line_dash="dash", line_color="#808080")
     return figure
+
+
+def _microtainer_as_dbs(analyzed_data: pd.DataFrame) -> pd.DataFrame:
+    """Return a plotting copy compatible with paired DBS-style chart helpers."""
+
+    return analyzed_data.rename(columns={"Microtainer Result": "DBS Result"})
+
+
+def create_microtainer_scatter_plot(
+    analyzed_data: pd.DataFrame, overall_summary: dict[str, float | str]
+) -> go.Figure:
+    """Create Microtainer-vs-reference scatter plot."""
+
+    figure = create_dbs_scatter_plot(_microtainer_as_dbs(analyzed_data), overall_summary)
+    figure.update_layout(title="Microtainer vs Reference Scatter Plot")
+    figure.update_yaxes(title_text="Microtainer Result")
+    return figure
+
+
+def create_microtainer_bland_altman_plot(
+    analyzed_data: pd.DataFrame, overall_summary: dict[str, float | str]
+) -> go.Figure:
+    """Create Microtainer Bland-Altman plot."""
+
+    figure = create_dbs_bland_altman_plot(_microtainer_as_dbs(analyzed_data), overall_summary)
+    figure.update_layout(title="Microtainer Bland-Altman Plot")
+    figure.update_yaxes(title_text="Microtainer - Reference")
+    return figure
+
+
+def create_microtainer_recovery_plot(
+    analyzed_data: pd.DataFrame, min_recovery: float, max_recovery: float
+) -> go.Figure:
+    """Create Microtainer recovery by sample plot."""
+
+    figure = create_dbs_recovery_plot(_microtainer_as_dbs(analyzed_data), min_recovery, max_recovery)
+    figure.update_layout(title="Microtainer Recovery by Sample")
+    return figure
+
+
+def create_microtainer_percent_bias_plot(
+    analyzed_data: pd.DataFrame, max_percent_bias: float
+) -> go.Figure:
+    """Create Microtainer percent bias by sample plot."""
+
+    figure = create_dbs_percent_bias_plot(_microtainer_as_dbs(analyzed_data), max_percent_bias)
+    figure.update_layout(title="Microtainer Percent Bias by Sample")
+    return figure
+
+
+def create_microtainer_distribution_comparison(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create reference and microtainer distribution comparison."""
+
+    long_data = analyzed_data.melt(
+        value_vars=["Reference Result", "Microtainer Result"],
+        var_name="Specimen Type",
+        value_name="Result",
+    )
+    return px.histogram(
+        long_data,
+        x="Result",
+        color="Specimen Type",
+        barmode="overlay",
+        marginal="box",
+        opacity=0.6,
+        title="Reference and Microtainer Distribution Comparison",
+        template="plotly_white",
+    )
+
+
+def create_microtainer_volume_impact_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create collection volume vs bias plot."""
+
+    figure = px.scatter(
+        analyzed_data.dropna(subset=["Collection Volume", "Bias"]),
+        x="Collection Volume",
+        y="Bias",
+        hover_data=["Sample ID"],
+        title="Collection Volume vs Bias",
+        template="plotly_white",
+    )
+    figure = _add_simple_regression_line(figure, analyzed_data, "Collection Volume", "Bias")
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_microtainer_delay_impact_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create processing delay vs bias plot."""
+
+    figure = px.scatter(
+        analyzed_data.dropna(subset=["Processing Delay (days)", "Bias"]),
+        x="Processing Delay (days)",
+        y="Bias",
+        hover_data=["Sample ID"],
+        title="Processing Delay vs Bias",
+        template="plotly_white",
+    )
+    figure = _add_simple_regression_line(figure, analyzed_data, "Processing Delay (days)", "Bias")
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_microtainer_instrument_comparison_plot(instrument_summary: pd.DataFrame) -> go.Figure:
+    """Create microtainer mean bias by instrument plot."""
+
+    return create_dbs_instrument_bias_plot(instrument_summary).update_layout(
+        title="Microtainer Mean Bias by Instrument"
+    )

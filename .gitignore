@@ -40,7 +40,6 @@ env/
 
 # Streamlit
 .streamlit/secrets.toml
-.streamlit/config.toml
 streamlit.log
 
 # Local outputs
