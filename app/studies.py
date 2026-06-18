@@ -100,6 +100,26 @@ ACCURACY_REPORT_SECTIONS = (
 )
 
 
+DETECTION_CAPABILITY_REPORT_SECTIONS = (
+    "Study Metadata",
+    "Executive Summary",
+    "Acceptance Criteria",
+    "Calculation Methodology",
+    "Data Quality Assessment",
+    "LoB Analysis",
+    "LoD Analysis",
+    "LoQ Analysis",
+    "Acceptance Criteria Results",
+    "Detection Capability Decision Matrix",
+    "Interpretation",
+    "Visualizations",
+    "Analyzed Dataset",
+    "Analyst Notes",
+    "Preliminary Conclusion",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -234,6 +254,46 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
             "Individual sample stability plot",
         ),
         report_sections=STABILITY_REPORT_SECTIONS,
+        implemented=True,
+    ),
+    "Detection Capability": StudyTypeConfig(
+        name="Detection Capability",
+        description="Limit of Blank, Limit of Detection, and Limit of Quantitation validation workflow.",
+        metrics=(
+            "Mean blank",
+            "SD blank",
+            "LoB",
+            "Mean low-level sample",
+            "SD low-level sample",
+            "LoD",
+            "LoQ CV%",
+            "Bias %",
+            "Recovery %",
+            "Operational LoQ",
+            "Data quality assessment",
+        ),
+        acceptance_criteria=(
+            "Maximum acceptable LoB",
+            "Maximum acceptable LoD",
+            "Target LoQ CV%",
+            "Maximum acceptable LoQ concentration",
+            "Pass with caution borderline zone",
+        ),
+        visualizations=(
+            "Blank distribution histogram",
+            "Blank replicate boxplot",
+            "Low-level replicate distribution",
+            "LoB vs LoD visualization",
+            "CV% vs concentration",
+            "Recovery vs concentration",
+            "LoQ decision plot",
+            "Replicate distribution by concentration",
+            "Replicate scatter plot",
+            "LoQ precision curve",
+            "Detection capability ladder",
+            "Distribution density plot",
+        ),
+        report_sections=DETECTION_CAPABILITY_REPORT_SECTIONS,
         implemented=True,
     ),
     "Reference Range Verification": StudyTypeConfig(

@@ -20,6 +20,9 @@ from analysis import (
     evaluate_stability_criteria,
     get_top_outliers,
     run_accuracy_study,
+    evaluate_detection_capability_criteria,
+    build_detection_decision_matrix,
+    run_detection_capability_study,
     run_linearity_study,
     run_precision_study,
     run_method_comparison,
@@ -32,9 +35,21 @@ from plots import (
     create_accuracy_recovery_plot,
     create_accuracy_replicate_distribution_plot,
     create_individual_accuracy_bias_plot,
+    create_blank_distribution_histogram,
+    create_blank_replicate_boxplot,
     create_condition_difference_plot,
+    create_detection_replicate_distribution_plot,
+    create_detection_replicate_scatter_plot,
+    create_detection_capability_ladder,
+    create_detection_density_plot,
     create_difference_plot,
     create_individual_stability_plot,
+    create_lob_lod_visualization,
+    create_low_level_distribution_plot,
+    create_loq_cv_plot,
+    create_loq_decision_plot,
+    create_loq_precision_curve,
+    create_loq_recovery_plot,
     create_linearity_plot,
     create_linearity_residual_plot,
     create_percent_bias_histogram,
@@ -52,6 +67,9 @@ from report import (
     build_accuracy_executive_summary,
     build_accuracy_html_report,
     build_criteria_table,
+    build_detection_executive_summary,
+    build_detection_html_report,
+    build_detection_pdf_report,
     build_html_report,
     build_linearity_executive_summary,
     build_linearity_html_report,
@@ -67,6 +85,9 @@ from report import (
     format_accuracy_overall_summary,
     format_accuracy_table,
     format_accuracy_worst_case_summary,
+    format_detection_criteria_table,
+    format_detection_overall_summary,
+    format_detection_table,
     format_linearity_criteria_table,
     format_linearity_equation,
     format_linearity_regression_summary,
@@ -80,6 +101,7 @@ from report import (
     format_stability_table,
     generate_interpretation,
     generate_accuracy_interpretation,
+    generate_detection_interpretation,
     generate_linearity_interpretation,
     generate_precision_interpretation,
     generate_stability_risk_assessment,
@@ -98,12 +120,14 @@ PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_stud
 LINEARITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "linearity_study_hba1c.csv"
 STABILITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "stability_study_hba1c.csv"
 ACCURACY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "accuracy_study_hba1c.csv"
+DETECTION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "detection_capability_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
     ("Precision Studies", "Intra-assay and inter-assay precision workflows."),
     ("Linearity Studies", "Analytical measurement range and recovery by level."),
     ("Stability Studies", "Specimen, reagent, and timepoint stability review."),
+    ("Detection Capability", "Limit of Blank, Limit of Detection, and Limit of Quantitation validation workflows."),
     ("DBS Validation", "Dried blood spot correction and agreement workflows."),
     ("Microtainer Validation", "Small-volume specimen comparison workflows."),
     ("Validation Reports", "Scientific summary reports and review packages."),
@@ -322,6 +346,38 @@ def render_accuracy_executive_summary(
         render_metric_card("Failed Criteria", summary_values["Failed Criteria"])
 
 
+def render_detection_executive_summary(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame,
+) -> None:
+    """Render executive summary cards for a completed detection capability study."""
+
+    summary_values = build_detection_executive_summary(
+        overall_summary, decision, criteria_table
+    )
+    st.subheader("Executive Summary")
+    first_row = st.columns(4)
+    with first_row[0]:
+        render_metric_card("Overall Decision", summary_values["Overall Decision"], status=decision)
+    with first_row[1]:
+        render_metric_card("LoB", summary_values["LoB"])
+    with first_row[2]:
+        render_metric_card("LoD", summary_values["LoD"])
+    with first_row[3]:
+        render_metric_card("Operational LoQ", summary_values["Operational LoQ"])
+
+    second_row = st.columns(4)
+    with second_row[0]:
+        render_metric_card("LoQ CV%", summary_values["LoQ CV%"])
+    with second_row[1]:
+        render_metric_card("Blank Replicates", summary_values["Blank Replicates"])
+    with second_row[2]:
+        render_metric_card("Low-Level Replicates", summary_values["Low-Level Replicates"])
+    with second_row[3]:
+        render_metric_card("Quantitation Levels Tested", summary_values["Quantitation Levels Tested"])
+
+
 def render_linearity_equation_card(regression_summary: dict[str, float | str]) -> None:
     """Render the regression equation card for linearity results."""
 
@@ -458,6 +514,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
     is_linearity = study_type == "Linearity Study"
     is_stability = study_type == "Stability Study"
     is_accuracy = study_type == "Accuracy Study"
+    is_detection = study_type == "Detection Capability"
     default_study_name = (
         "HbA1c Precision Study"
         if is_precision
@@ -467,6 +524,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_stability
         else "HbA1c Accuracy Study"
         if is_accuracy
+        else "HbA1c Detection Capability Study"
+        if is_detection
         else "HbA1c Method Comparison Study"
     )
     default_objective = (
@@ -478,6 +537,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_stability
         else "Evaluate agreement between observed HbA1c results and expected target values."
         if is_accuracy
+        else "Evaluate assay detection capability through determination of LoB, LoD, and LoQ using replicate measurements of blank and low-concentration samples."
+        if is_detection
         else "Evaluate agreement between candidate and reference results."
     )
     default_design = (
@@ -489,6 +550,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_stability
         else "Replicate measurements of samples with known or assigned expected values across multiple concentration levels."
         if is_accuracy
+        else "Replicate blank, low-concentration, and quantitation-level samples analyzed to estimate LoB, LoD, and LoQ."
+        if is_detection
         else "Paired specimen comparison using reference and candidate measurements."
     )
 
@@ -523,10 +586,12 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     reference_method = ""
     candidate_method = ""
-    if is_precision or is_linearity or is_stability or is_accuracy:
+    if is_precision or is_linearity or is_stability or is_accuracy or is_detection:
         units = st.text_input("Units", value="%")
         key_prefix = (
-            "accuracy"
+            "detection"
+            if is_detection
+            else "accuracy"
             if is_accuracy
             else
             "stability"
@@ -537,6 +602,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         )
         instrument_name = instrument_id = laboratory_site = ""
         reagent_lot = calibrator_lot = qc_lot = operator_name = ""
+        study_protocol_id = clsi_guideline_reference = ""
         with st.expander("Laboratory Documentation", expanded=False):
             lab_row_1 = st.columns(3)
             with lab_row_1[0]:
@@ -555,6 +621,19 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
                 qc_lot = st.text_input("Quality Control Lot Number", key=f"{key_prefix}_qc_lot")
 
             operator_name = st.text_input("Operator Name", key=f"{key_prefix}_operator_name")
+            if is_detection:
+                detection_row = st.columns(2)
+                with detection_row[0]:
+                    study_protocol_id = st.text_input(
+                        "Study Protocol ID",
+                        key=f"{key_prefix}_study_protocol_id",
+                    )
+                with detection_row[1]:
+                    clsi_guideline_reference = st.text_input(
+                        "CLSI Guideline Reference",
+                        value="CLSI EP17-A2",
+                        key=f"{key_prefix}_clsi_guideline_reference",
+                    )
     else:
         third_row = st.columns(3)
         with third_row[0]:
@@ -582,10 +661,10 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
-    if not (is_precision or is_linearity or is_stability or is_accuracy):
+    if not (is_precision or is_linearity or is_stability or is_accuracy or is_detection):
         metadata["Reference Method"] = reference_method
         metadata["Candidate Method"] = candidate_method
-    elif is_precision or is_linearity or is_stability or is_accuracy:
+    elif is_precision or is_linearity or is_stability or is_accuracy or is_detection:
         metadata.update(
             {
                 "Instrument Name": instrument_name,
@@ -597,6 +676,17 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
                 "Laboratory Site": laboratory_site,
             }
         )
+        if is_detection:
+            metadata.update(
+                {
+                    "Instrument": instrument_name,
+                    "Reagent Lot": reagent_lot,
+                    "Calibrator Lot": calibrator_lot,
+                    "Operator": operator_name,
+                    "Study Protocol ID": study_protocol_id,
+                    "CLSI Guideline Reference": clsi_guideline_reference,
+                }
+            )
     return metadata
 
 
@@ -895,6 +985,63 @@ def render_accuracy_criteria() -> dict[str, float]:
     }
 
 
+def render_detection_criteria() -> dict[str, float]:
+    """Render user-defined preliminary detection capability criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are user-defined preliminary screening thresholds, not regulatory approval."
+    )
+    row = st.columns(5)
+    with row[0]:
+        max_lob = st.number_input(
+            "Maximum acceptable LoB",
+            min_value=0.0,
+            value=0.15,
+            step=0.01,
+            format="%.3f",
+        )
+    with row[1]:
+        max_lod = st.number_input(
+            "Maximum acceptable LoD",
+            min_value=0.0,
+            value=0.30,
+            step=0.01,
+            format="%.3f",
+        )
+    with row[2]:
+        target_loq_cv = st.number_input(
+            "Target LoQ CV%",
+            min_value=0.0,
+            value=20.0,
+            step=1.0,
+            format="%.2f",
+        )
+    with row[3]:
+        max_loq = st.number_input(
+            "Maximum acceptable LoQ concentration",
+            min_value=0.0,
+            value=1.00,
+            step=0.05,
+            format="%.3f",
+        )
+    with row[4]:
+        borderline_zone = st.number_input(
+            "Borderline zone %",
+            min_value=0.0,
+            value=2.0,
+            step=0.5,
+            format="%.2f",
+        )
+    return {
+        "Maximum LoB": max_lob,
+        "Maximum LoD": max_lod,
+        "Target LoQ CV%": target_loq_cv,
+        "Maximum LoQ Concentration": max_loq,
+        "Borderline Zone": borderline_zone,
+    }
+
+
 def optional_column_selectbox(
     label: str, columns: list[str], default_column: str | None = None
 ) -> str | None:
@@ -1037,6 +1184,398 @@ def build_accuracy_summary_csv(
     buffer.write("\nWorst-Case Performance\n")
     worst_case_summary.to_csv(buffer, index=False)
     return buffer.getvalue()
+
+
+def build_detection_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    overall_summary: pd.DataFrame,
+    methodology_table: pd.DataFrame,
+    data_quality_summary: pd.DataFrame,
+    outlier_table: pd.DataFrame,
+    decision_matrix: pd.DataFrame,
+    lob_summary: pd.DataFrame,
+    lod_summary: pd.DataFrame,
+    loq_summary: pd.DataFrame,
+    analyzed_data: pd.DataFrame,
+) -> str:
+    """Build a sectioned CSV summary for detection capability documentation."""
+
+    buffer = StringIO()
+    pd.DataFrame(
+        [{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]
+    ).to_csv(buffer, index=False)
+    buffer.write("\nExecutive Summary\n")
+    overall_summary.to_csv(buffer, index=False)
+    buffer.write("\nAcceptance Criteria Results\n")
+    criteria_table.to_csv(buffer, index=False)
+    buffer.write("\nCalculation Methodology\n")
+    methodology_table.to_csv(buffer, index=False)
+    buffer.write("\nData Quality Assessment\n")
+    data_quality_summary.to_csv(buffer, index=False)
+    if not outlier_table.empty:
+        buffer.write("\nIQR Outlier Review\n")
+        outlier_table.to_csv(buffer, index=False)
+    buffer.write("\nDecision Matrix\n")
+    decision_matrix.to_csv(buffer, index=False)
+    buffer.write("\nLoB Summary\n")
+    lob_summary.to_csv(buffer, index=False)
+    buffer.write("\nLoD Summary\n")
+    lod_summary.to_csv(buffer, index=False)
+    buffer.write("\nLoQ Summary\n")
+    loq_summary.to_csv(buffer, index=False)
+    buffer.write("\nAnalyzed Dataset\n")
+    analyzed_data.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def render_detection_workspace(metadata: dict[str, object]) -> None:
+    """Render the Detection Capability workflow."""
+
+    criteria = render_detection_criteria()
+    uploaded_file = st.file_uploader(
+        "Upload detection capability data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload blank, low-concentration, and quantitation-level replicate results.",
+    )
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c detection capability dataset",
+        value=uploaded_file is None,
+    )
+
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(DETECTION_SAMPLE_DATA_PATH)
+
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+    st.subheader("Data Preview")
+    st.dataframe(data.head(25), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    all_columns = list(data.columns)
+    if len(numeric_columns) < 2:
+        st.error("Concentration and observed result numeric columns are required.")
+        st.stop()
+
+    st.subheader("Column Selection")
+    first_row = st.columns(4)
+    with first_row[0]:
+        sample_id_column = st.selectbox(
+            "Sample ID column",
+            all_columns,
+            index=all_columns.index("Sample ID") if "Sample ID" in all_columns else 0,
+        )
+    with first_row[1]:
+        sample_type_column = st.selectbox(
+            "Sample Type column",
+            all_columns,
+            index=all_columns.index("Sample Type") if "Sample Type" in all_columns else 0,
+        )
+    with first_row[2]:
+        concentration_column = st.selectbox(
+            "Concentration Level column",
+            numeric_columns,
+            index=numeric_columns.index("Concentration Level")
+            if "Concentration Level" in numeric_columns
+            else 0,
+        )
+    with first_row[3]:
+        result_column = st.selectbox(
+            "Observed Result column",
+            numeric_columns,
+            index=numeric_columns.index("Observed Result")
+            if "Observed Result" in numeric_columns
+            else min(1, len(numeric_columns) - 1),
+        )
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        replicate_column = optional_column_selectbox(
+            "Replicate column",
+            all_columns,
+            "Replicate" if "Replicate" in all_columns else None,
+        )
+    with second_row[1]:
+        units_column = optional_column_selectbox(
+            "Units column",
+            all_columns,
+            "Units" if "Units" in all_columns else None,
+        )
+    with second_row[2]:
+        include_column = optional_column_selectbox(
+            "Include in Analysis column",
+            all_columns,
+            "Include in Analysis" if "Include in Analysis" in all_columns else None,
+        )
+
+    run_analysis = st.button("Run Detection Capability Analysis", type="primary")
+    if run_analysis:
+        try:
+            result = run_detection_capability_study(
+                data=data,
+                sample_id_column=sample_id_column,
+                sample_type_column=sample_type_column,
+                concentration_column=concentration_column,
+                result_column=result_column,
+                replicate_column=replicate_column,
+                units_column=units_column,
+                include_column=include_column,
+                target_loq_cv=criteria["Target LoQ CV%"],
+            )
+        except Exception as exc:
+            st.error(f"Detection capability analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_detection_capability_criteria(
+            result.overall_summary,
+            max_lob=criteria["Maximum LoB"],
+            max_lod=criteria["Maximum LoD"],
+            target_loq_cv=criteria["Target LoQ CV%"],
+            max_loq_concentration=criteria["Maximum LoQ Concentration"],
+            borderline_zone=criteria["Borderline Zone"],
+        )
+        decision = str(criteria_result["decision"])
+        criteria_table = build_criteria_table(criteria_result)
+        decision_matrix = build_detection_decision_matrix(criteria_result)
+        display_criteria = format_detection_criteria_table(criteria_table)
+        display_overall = format_detection_overall_summary(result.overall_summary)
+        display_methodology = format_detection_table(result.methodology_table)
+        display_quality = format_detection_table(result.data_quality_summary)
+        display_outliers = format_detection_table(result.outlier_table)
+        display_decision_matrix = format_detection_table(decision_matrix)
+        display_lob = format_detection_table(result.lob_summary)
+        display_lod = format_detection_table(result.lod_summary)
+        display_loq = format_detection_table(result.loq_summary)
+        display_analyzed = format_detection_table(result.analyzed_data)
+        interpretation = generate_detection_interpretation(
+            result.overall_summary,
+            result.data_quality_summary,
+            criteria,
+            decision,
+            metadata,
+        )
+
+        render_detection_executive_summary(
+            result.overall_summary, decision, display_criteria
+        )
+        st.subheader("Detection Capability Summary")
+        show_decision(decision)
+        st.dataframe(display_overall, width="stretch")
+
+        st.subheader("Acceptance Criteria Results")
+        render_badged_criteria_table(display_criteria)
+
+        st.subheader("Calculation Methodology")
+        st.dataframe(display_methodology, width="stretch")
+
+        st.subheader("Data Quality Assessment")
+        st.dataframe(display_quality, width="stretch")
+        for _, quality_row in result.data_quality_summary.iterrows():
+            if str(quality_row["Status"]).upper() != "PASS":
+                st.warning(
+                    f"{quality_row['Check']}: observed {quality_row['Observed']}. "
+                    f"{quality_row['Recommendation']}."
+                )
+        if result.outlier_table.empty:
+            st.info("No IQR outliers were detected.")
+        else:
+            st.markdown("**IQR Outlier Review**")
+            st.dataframe(display_outliers, width="stretch")
+
+        st.subheader("Detection Capability Decision Matrix")
+        st.dataframe(display_decision_matrix, width="stretch")
+
+        lob_col, lod_col = st.columns(2)
+        with lob_col:
+            st.subheader("LoB Summary")
+            st.dataframe(display_lob, width="stretch")
+        with lod_col:
+            st.subheader("LoD Summary")
+            st.dataframe(display_lod, width="stretch")
+
+        st.subheader("LoQ Summary")
+        st.dataframe(display_loq, width="stretch")
+
+        st.subheader("Interpretation")
+        st.info(interpretation)
+
+        st.subheader("Visualizations")
+        blank_histogram = create_blank_distribution_histogram(result.analyzed_data)
+        blank_boxplot = create_blank_replicate_boxplot(result.analyzed_data)
+        low_distribution = create_low_level_distribution_plot(result.analyzed_data)
+        lob_lod_plot = create_lob_lod_visualization(
+            result.lob_summary, result.lod_summary
+        )
+        cv_plot = create_loq_cv_plot(result.loq_summary, criteria["Target LoQ CV%"])
+        recovery_plot = create_loq_recovery_plot(result.loq_summary)
+        decision_plot = create_loq_decision_plot(
+            result.loq_summary, criteria["Target LoQ CV%"]
+        )
+        replicate_plot = create_detection_replicate_distribution_plot(
+            result.analyzed_data
+        )
+        replicate_scatter = create_detection_replicate_scatter_plot(result.analyzed_data)
+        precision_curve = create_loq_precision_curve(
+            result.loq_summary,
+            criteria["Target LoQ CV%"],
+            result.overall_summary["LoQ"],
+        )
+        ladder_plot = create_detection_capability_ladder(result.overall_summary)
+        density_plot = create_detection_density_plot(
+            result.analyzed_data,
+            result.overall_summary["LoB"],
+            result.overall_summary["LoD"],
+        )
+
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(blank_histogram, width="stretch")
+        with chart_right:
+            st.plotly_chart(blank_boxplot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(low_distribution, width="stretch")
+        with chart_right:
+            st.plotly_chart(lob_lod_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(cv_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(recovery_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(decision_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(replicate_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(replicate_scatter, width="stretch")
+        with chart_right:
+            st.plotly_chart(precision_curve, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(ladder_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(density_plot, width="stretch")
+
+        st.subheader("Analyzed Dataset")
+        st.dataframe(display_analyzed, width="stretch")
+
+        html_report = build_detection_html_report(
+            lob_summary=result.lob_summary,
+            lod_summary=result.lod_summary,
+            loq_summary=result.loq_summary,
+            methodology_table=result.methodology_table,
+            data_quality_summary=result.data_quality_summary,
+            outlier_table=result.outlier_table,
+            decision_matrix=decision_matrix,
+            analyzed_data=result.analyzed_data,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+            visualization_html={
+                "Blank Distribution Histogram": blank_histogram.to_html(
+                    full_html=False, include_plotlyjs="cdn"
+                ),
+                "Blank Replicate Boxplot": blank_boxplot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Low-Level Replicate Distribution": low_distribution.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "LoB vs LoD Visualization": lob_lod_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "CV% vs Concentration": cv_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Recovery vs Concentration": recovery_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "LoQ Decision Plot": decision_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Replicate Distribution by Concentration": replicate_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Replicate Scatter Plot": replicate_scatter.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "LoQ Precision Curve": precision_curve.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Detection Capability Ladder": ladder_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Distribution Density Plot": density_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+            },
+        )
+
+        pdf_report = build_detection_pdf_report(
+            lob_summary=result.lob_summary,
+            lod_summary=result.lod_summary,
+            loq_summary=result.loq_summary,
+            methodology_table=result.methodology_table,
+            data_quality_summary=result.data_quality_summary,
+            outlier_table=result.outlier_table,
+            decision_matrix=decision_matrix,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+        )
+
+        export_left, export_middle, export_right = st.columns(3)
+        with export_left:
+            st.download_button(
+                "Download detection capability summary CSV",
+                data=build_detection_summary_csv(
+                    metadata,
+                    display_criteria,
+                    display_overall,
+                    display_methodology,
+                    display_quality,
+                    display_outliers,
+                    display_decision_matrix,
+                    display_lob,
+                    display_lod,
+                    display_loq,
+                    display_analyzed,
+                ).encode("utf-8"),
+                file_name="detection_capability_summary.csv",
+                mime="text/csv",
+            )
+        with export_middle:
+            st.download_button(
+                "Download detection capability report HTML",
+                data=html_report.encode("utf-8"),
+                file_name="detection_capability_report.html",
+                mime="text/html",
+            )
+        with export_right:
+            st.download_button(
+                "Download detection capability report PDF",
+                data=pdf_report,
+                file_name="detection_capability_report.pdf",
+                mime="application/pdf",
+            )
 
 
 def render_accuracy_workspace(metadata: dict[str, object]) -> None:
@@ -2115,6 +2654,11 @@ def main() -> None:
     if study_type == "Accuracy Study":
         metadata = render_study_documentation(study_type)
         render_accuracy_workspace(metadata)
+        st.stop()
+
+    if study_type == "Detection Capability":
+        metadata = render_study_documentation(study_type)
+        render_detection_workspace(metadata)
         st.stop()
 
     if study_type != "Method Comparison":

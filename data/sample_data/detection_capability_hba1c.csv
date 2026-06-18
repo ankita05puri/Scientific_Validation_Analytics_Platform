@@ -1,0 +1,55 @@
+Sample ID,Sample Type,Concentration Level,Replicate,Observed Result,Units,Include in Analysis
+BLK-01,Blank,0.00,1,0.032,%,Yes
+BLK-02,Blank,0.00,2,0.041,%,Yes
+BLK-03,Blank,0.00,3,0.037,%,Yes
+BLK-04,Blank,0.00,4,0.048,%,Yes
+BLK-05,Blank,0.00,5,0.044,%,Yes
+BLK-06,Blank,0.00,6,0.035,%,Yes
+BLK-07,Blank,0.00,7,0.052,%,Yes
+BLK-08,Blank,0.00,8,0.039,%,Yes
+BLK-09,Blank,0.00,9,0.046,%,Yes
+BLK-10,Blank,0.00,10,0.034,%,Yes
+BLK-11,Blank,0.00,11,0.043,%,Yes
+BLK-12,Blank,0.00,12,0.050,%,Yes
+LOW-01,Low Concentration,0.20,1,0.184,%,Yes
+LOW-02,Low Concentration,0.20,2,0.205,%,Yes
+LOW-03,Low Concentration,0.20,3,0.196,%,Yes
+LOW-04,Low Concentration,0.20,4,0.213,%,Yes
+LOW-05,Low Concentration,0.20,5,0.191,%,Yes
+LOW-06,Low Concentration,0.20,6,0.207,%,Yes
+LOW-07,Low Concentration,0.20,7,0.199,%,Yes
+LOW-08,Low Concentration,0.20,8,0.188,%,Yes
+LOW-09,Low Concentration,0.20,9,0.216,%,Yes
+LOW-10,Low Concentration,0.20,10,0.203,%,Yes
+LOW-11,Low Concentration,0.20,11,0.194,%,Yes
+LOW-12,Low Concentration,0.20,12,0.209,%,Yes
+LOQ-020-01,Quantitation Level,0.20,1,0.184,%,Yes
+LOQ-020-02,Quantitation Level,0.20,2,0.212,%,Yes
+LOQ-020-03,Quantitation Level,0.20,3,0.196,%,Yes
+LOQ-020-04,Quantitation Level,0.20,4,0.221,%,Yes
+LOQ-020-05,Quantitation Level,0.20,5,0.204,%,Yes
+LOQ-020-06,Quantitation Level,0.20,6,0.190,%,Yes
+LOQ-030-01,Quantitation Level,0.30,1,0.287,%,Yes
+LOQ-030-02,Quantitation Level,0.30,2,0.309,%,Yes
+LOQ-030-03,Quantitation Level,0.30,3,0.296,%,Yes
+LOQ-030-04,Quantitation Level,0.30,4,0.315,%,Yes
+LOQ-030-05,Quantitation Level,0.30,5,0.301,%,Yes
+LOQ-030-06,Quantitation Level,0.30,6,0.292,%,Yes
+LOQ-050-01,Quantitation Level,0.50,1,0.487,%,Yes
+LOQ-050-02,Quantitation Level,0.50,2,0.505,%,Yes
+LOQ-050-03,Quantitation Level,0.50,3,0.496,%,Yes
+LOQ-050-04,Quantitation Level,0.50,4,0.512,%,Yes
+LOQ-050-05,Quantitation Level,0.50,5,0.501,%,Yes
+LOQ-050-06,Quantitation Level,0.50,6,0.492,%,Yes
+LOQ-080-01,Quantitation Level,0.80,1,0.782,%,Yes
+LOQ-080-02,Quantitation Level,0.80,2,0.807,%,Yes
+LOQ-080-03,Quantitation Level,0.80,3,0.795,%,Yes
+LOQ-080-04,Quantitation Level,0.80,4,0.814,%,Yes
+LOQ-080-05,Quantitation Level,0.80,5,0.801,%,Yes
+LOQ-080-06,Quantitation Level,0.80,6,0.790,%,Yes
+LOQ-120-01,Quantitation Level,1.20,1,1.176,%,Yes
+LOQ-120-02,Quantitation Level,1.20,2,1.214,%,Yes
+LOQ-120-03,Quantitation Level,1.20,3,1.195,%,Yes
+LOQ-120-04,Quantitation Level,1.20,4,1.226,%,Yes
+LOQ-120-05,Quantitation Level,1.20,5,1.204,%,Yes
+LOQ-120-06,Quantitation Level,1.20,6,1.188,%,Yes
