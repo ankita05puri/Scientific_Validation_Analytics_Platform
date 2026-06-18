@@ -7,6 +7,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from validation.visualization import STATUS_COLOR_MAP
+
 
 def _format_number(value: float, digits: int = 3) -> str:
     """Format numeric labels while handling missing values."""
@@ -573,5 +575,254 @@ def create_individual_stability_plot(analyzed_data: pd.DataFrame) -> go.Figure:
         template="plotly_white",
     )
     figure.update_traces(marker={"size": 7}, line={"width": 1.8})
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_accuracy_expected_observed_plot(accuracy_summary: pd.DataFrame) -> go.Figure:
+    """Create expected-vs-observed accuracy plot with identity line."""
+
+    figure = px.scatter(
+        accuracy_summary,
+        x="Expected Result",
+        y="Mean Observed Result",
+        text="Level",
+        title="Expected vs Observed Accuracy Plot",
+        labels={
+            "Expected Result": "Expected Result",
+            "Mean Observed Result": "Mean Observed Result",
+        },
+        template="plotly_white",
+    )
+    min_value = min(
+        accuracy_summary["Expected Result"].min(),
+        accuracy_summary["Mean Observed Result"].min(),
+    )
+    max_value = max(
+        accuracy_summary["Expected Result"].max(),
+        accuracy_summary["Mean Observed Result"].max(),
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=[min_value, max_value],
+            y=[min_value, max_value],
+            mode="lines",
+            name="Identity line",
+            line={"color": "#808080", "dash": "dash", "width": 2},
+        )
+    )
+    figure.update_traces(
+        marker={"color": "#2a6f97", "size": 10, "line": {"color": "#102a43", "width": 1}},
+        textposition="top center",
+    )
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_accuracy_percent_bias_plot(
+    accuracy_summary: pd.DataFrame,
+    max_abs_percent_bias: float,
+    borderline_zone: float = 0.0,
+) -> go.Figure:
+    """Create percent bias by level plot with threshold lines."""
+
+    plot_data = accuracy_summary.copy()
+    caution_floor = max(0.0, max_abs_percent_bias - borderline_zone)
+    plot_data["Review Status"] = np.select(
+        [
+            plot_data["Percent Bias"].abs() >= max_abs_percent_bias,
+            plot_data["Percent Bias"].abs() > caution_floor,
+        ],
+        ["FAIL", "PASS WITH CAUTION"],
+        default="PASS",
+    )
+    figure = px.bar(
+        plot_data,
+        x="Level",
+        y="Percent Bias",
+        color="Review Status",
+        title="Percent Bias by Level",
+        labels={"Percent Bias": "Percent Bias (%)"},
+        color_discrete_map={
+            "PASS": STATUS_COLOR_MAP["PASS"],
+            "PASS WITH CAUTION": STATUS_COLOR_MAP["PASS WITH CAUTION"],
+            "FAIL": STATUS_COLOR_MAP["FAIL"],
+        },
+        template="plotly_white",
+    )
+    for y_value in [max_abs_percent_bias, -max_abs_percent_bias]:
+        figure.add_hline(
+            y=y_value,
+            line_dash="dash",
+            line_color="#9467bd",
+            annotation_text=f"{y_value:.1f}%",
+            annotation_position="top left" if y_value > 0 else "bottom left",
+        )
+    figure.add_hline(y=0, line_color="#808080", line_width=1)
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_accuracy_recovery_plot(
+    accuracy_summary: pd.DataFrame,
+    min_recovery: float,
+    max_recovery: float,
+    borderline_zone: float = 0.0,
+) -> go.Figure:
+    """Create recovery by level plot with reference and threshold lines."""
+
+    plot_data = accuracy_summary.copy()
+    plot_data["Review Status"] = np.select(
+        [
+            (plot_data["Percent Recovery"] <= min_recovery)
+            | (plot_data["Percent Recovery"] >= max_recovery),
+            (plot_data["Percent Recovery"] < min_recovery + borderline_zone)
+            | (plot_data["Percent Recovery"] > max_recovery - borderline_zone),
+        ],
+        ["FAIL", "PASS WITH CAUTION"],
+        default="PASS",
+    )
+    figure = px.line(
+        plot_data,
+        x="Level",
+        y="Percent Recovery",
+        markers=True,
+        title="Recovery by Level",
+        labels={"Percent Recovery": "Percent Recovery (%)"},
+        template="plotly_white",
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=plot_data["Level"],
+            y=plot_data["Percent Recovery"],
+            mode="markers",
+            name="Review status",
+            marker={
+                "color": plot_data["Review Status"].map(
+                    STATUS_COLOR_MAP
+                ),
+                "size": 11,
+                "line": {"color": "#102a43", "width": 1},
+            },
+            text=plot_data["Review Status"],
+            hovertemplate="Level=%{x}<br>Recovery=%{y:.2f}%<br>Status=%{text}<extra></extra>",
+        )
+    )
+    for y_value, dash in [(min_recovery, "dash"), (100, "solid"), (max_recovery, "dash")]:
+        figure.add_hline(
+            y=y_value,
+            line_dash=dash,
+            line_color="#808080" if y_value == 100 else "#9467bd",
+            annotation_text=f"{y_value:.1f}%",
+            annotation_position="top left",
+        )
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_accuracy_replicate_distribution_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create observed result distribution by accuracy level."""
+
+    hover_columns = [
+        column
+        for column in ["Sample ID", "Replicate", "Expected Result", "Observed Result"]
+        if column in analyzed_data.columns
+    ]
+    figure = px.box(
+        analyzed_data,
+        x="Level",
+        y="Observed Result",
+        color="Level",
+        points="all",
+        hover_data=hover_columns,
+        title="Replicate Distribution by Level",
+        labels={"Observed Result": "Observed Result"},
+        template="plotly_white",
+    )
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_accuracy_performance_heatmap(accuracy_summary: pd.DataFrame) -> go.Figure:
+    """Create a heatmap for rapid level-by-metric accuracy review."""
+
+    heatmap_data = accuracy_summary[
+        ["Level", "Percent Bias", "Percent Recovery", "Absolute Difference"]
+    ].copy()
+    heatmap_data = heatmap_data.rename(columns={"Absolute Difference": "Absolute Bias"})
+    metric_order = ["Percent Bias", "Percent Recovery", "Absolute Bias"]
+    matrix = heatmap_data.set_index("Level")[metric_order].T
+    figure = go.Figure(
+        data=go.Heatmap(
+            z=matrix.values,
+            x=matrix.columns.astype(str),
+            y=matrix.index,
+            colorscale="RdYlGn_r",
+            colorbar={"title": "Observed value"},
+            text=np.vectorize(lambda value: f"{value:.2f}" if not pd.isna(value) else "")(
+                matrix.values
+            ),
+            texttemplate="%{text}",
+            hovertemplate="Level=%{x}<br>Metric=%{y}<br>Value=%{z:.2f}<extra></extra>",
+        )
+    )
+    figure.update_layout(
+        title="Accuracy Performance Heatmap",
+        xaxis_title="Level",
+        yaxis_title="Metric",
+        margin={"l": 90, "r": 40, "t": 70, "b": 65},
+        template="plotly_white",
+    )
+    return figure
+
+
+def create_individual_accuracy_bias_plot(
+    analyzed_data: pd.DataFrame,
+    max_abs_bias: float,
+) -> go.Figure:
+    """Create sample-level bias plot with mean bias and acceptance limits."""
+
+    plot_data = analyzed_data.copy()
+    plot_data["Individual Bias"] = (
+        plot_data["Observed Result"] - plot_data["Expected Result"]
+    )
+    mean_bias = plot_data["Individual Bias"].mean()
+    hover_columns = [
+        column
+        for column in ["Sample ID", "Level", "Replicate", "Observed Result"]
+        if column in plot_data.columns
+    ]
+    figure = px.scatter(
+        plot_data,
+        x="Expected Result",
+        y="Individual Bias",
+        color="Level",
+        hover_data=hover_columns,
+        title="Individual Sample Bias Plot",
+        labels={
+            "Expected Result": "Expected Result",
+            "Individual Bias": "Individual Sample Bias",
+        },
+        template="plotly_white",
+    )
+    figure.add_hline(
+        y=mean_bias,
+        line_color="#2a6f97",
+        line_width=2,
+        annotation_text=f"Mean bias {mean_bias:.2f}",
+        annotation_position="top left",
+    )
+    for y_value in [max_abs_bias, -max_abs_bias]:
+        figure.add_hline(
+            y=y_value,
+            line_dash="dash",
+            line_color="#9467bd",
+            annotation_text=f"Limit {y_value:.2f}",
+            annotation_position="top left" if y_value > 0 else "bottom left",
+        )
+    figure.add_hline(y=0, line_color="#808080", line_width=1)
+    figure.update_traces(
+        marker={"size": 9, "line": {"color": "#102a43", "width": 1}},
+    )
     figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
     return figure

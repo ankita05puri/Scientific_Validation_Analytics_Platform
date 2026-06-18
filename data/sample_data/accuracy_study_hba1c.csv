@@ -1,0 +1,16 @@
+Sample ID,Level,Expected Result,Observed Result,Units,Replicate,Include in Analysis
+ACC-Low-01,Low,5.5,5.4,%,1,Yes
+ACC-Low-02,Low,5.5,5.5,%,2,Yes
+ACC-Low-03,Low,5.5,5.6,%,3,Yes
+ACC-Low-04,Low,5.5,5.5,%,4,Yes
+ACC-Low-05,Low,5.5,5.4,%,5,Yes
+ACC-Med-01,Medium,7.2,7.1,%,1,Yes
+ACC-Med-02,Medium,7.2,7.2,%,2,Yes
+ACC-Med-03,Medium,7.2,7.3,%,3,Yes
+ACC-Med-04,Medium,7.2,7.2,%,4,Yes
+ACC-Med-05,Medium,7.2,7.1,%,5,Yes
+ACC-High-01,High,10.1,10.0,%,1,Yes
+ACC-High-02,High,10.1,10.2,%,2,Yes
+ACC-High-03,High,10.1,10.1,%,3,Yes
+ACC-High-04,High,10.1,10.3,%,4,Yes
+ACC-High-05,High,10.1,10.0,%,5,Yes

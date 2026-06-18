@@ -11,18 +11,27 @@ import pandas as pd
 import streamlit as st
 
 from analysis import (
+    assess_accuracy_data_quality,
     calculate_percent_samples_meeting_agreement,
     evaluate_acceptance_criteria,
+    evaluate_accuracy_criteria,
     evaluate_linearity_criteria,
     evaluate_precision_criteria,
     evaluate_stability_criteria,
     get_top_outliers,
+    run_accuracy_study,
     run_linearity_study,
     run_precision_study,
     run_method_comparison,
     run_stability_study,
 )
 from plots import (
+    create_accuracy_expected_observed_plot,
+    create_accuracy_percent_bias_plot,
+    create_accuracy_performance_heatmap,
+    create_accuracy_recovery_plot,
+    create_accuracy_replicate_distribution_plot,
+    create_individual_accuracy_bias_plot,
     create_condition_difference_plot,
     create_difference_plot,
     create_individual_stability_plot,
@@ -40,6 +49,8 @@ from plots import (
     create_stability_bias_plot,
 )
 from report import (
+    build_accuracy_executive_summary,
+    build_accuracy_html_report,
     build_criteria_table,
     build_html_report,
     build_linearity_executive_summary,
@@ -50,6 +61,12 @@ from report import (
     build_stability_pdf_report,
     build_summary_table,
     criteria_table_to_badged_html,
+    accuracy_criteria_dashboard_html,
+    format_accuracy_criteria_table,
+    format_accuracy_level_decision_table,
+    format_accuracy_overall_summary,
+    format_accuracy_table,
+    format_accuracy_worst_case_summary,
     format_linearity_criteria_table,
     format_linearity_equation,
     format_linearity_regression_summary,
@@ -62,6 +79,7 @@ from report import (
     format_storage_condition_comparison_table,
     format_stability_table,
     generate_interpretation,
+    generate_accuracy_interpretation,
     generate_linearity_interpretation,
     generate_precision_interpretation,
     generate_stability_risk_assessment,
@@ -79,6 +97,7 @@ SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "hba1c_method_comparison.
 PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_study_hba1c.csv"
 LINEARITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "linearity_study_hba1c.csv"
 STABILITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "stability_study_hba1c.csv"
+ACCURACY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "accuracy_study_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
@@ -265,6 +284,44 @@ def render_stability_executive_summary(
         render_metric_card("Failed Criteria", summary_values["Failed Criteria"])
 
 
+def render_accuracy_executive_summary(
+    overall_summary: dict[str, float | str],
+    worst_case_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame,
+    level_decision_table: pd.DataFrame,
+) -> None:
+    """Render executive summary cards for a completed accuracy study."""
+
+    summary_values = build_accuracy_executive_summary(
+        overall_summary, worst_case_summary, decision, criteria_table, level_decision_table
+    )
+    st.subheader("Executive Summary")
+    first_row = st.columns(3)
+    with first_row[0]:
+        render_metric_card("Overall Decision", summary_values["Overall Decision"], status=decision)
+    with first_row[1]:
+        render_metric_card("Overall Mean Percent Bias", summary_values["Overall Mean Percent Bias"])
+    with first_row[2]:
+        render_metric_card("Maximum Absolute Percent Bias", summary_values["Maximum Absolute Percent Bias"])
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        render_metric_card("Lowest Recovery", summary_values["Lowest Recovery"])
+    with second_row[1]:
+        render_metric_card("Highest Recovery", summary_values["Highest Recovery"])
+    with second_row[2]:
+        render_metric_card("Worst Performing Level", summary_values["Worst Performing Level"])
+
+    third_row = st.columns(3)
+    with third_row[0]:
+        render_metric_card("Levels Passing", summary_values["Levels Passing"])
+    with third_row[1]:
+        render_metric_card("Levels Failing", summary_values["Levels Failing"])
+    with third_row[2]:
+        render_metric_card("Failed Criteria", summary_values["Failed Criteria"])
+
+
 def render_linearity_equation_card(regression_summary: dict[str, float | str]) -> None:
     """Render the regression equation card for linearity results."""
 
@@ -400,6 +457,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
     is_precision = study_type == "Precision Study"
     is_linearity = study_type == "Linearity Study"
     is_stability = study_type == "Stability Study"
+    is_accuracy = study_type == "Accuracy Study"
     default_study_name = (
         "HbA1c Precision Study"
         if is_precision
@@ -407,6 +465,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_linearity
         else "HbA1c Stability Study"
         if is_stability
+        else "HbA1c Accuracy Study"
+        if is_accuracy
         else "HbA1c Method Comparison Study"
     )
     default_objective = (
@@ -416,6 +476,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_linearity
         else "Evaluate stability of HbA1c measurements over predefined storage conditions and timepoints."
         if is_stability
+        else "Evaluate agreement between observed HbA1c results and expected target values."
+        if is_accuracy
         else "Evaluate agreement between candidate and reference results."
     )
     default_design = (
@@ -425,6 +487,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_linearity
         else "Repeated measurements collected at baseline and subsequent timepoints under controlled storage conditions."
         if is_stability
+        else "Replicate measurements of samples with known or assigned expected values across multiple concentration levels."
+        if is_accuracy
         else "Paired specimen comparison using reference and candidate measurements."
     )
 
@@ -459,9 +523,12 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     reference_method = ""
     candidate_method = ""
-    if is_precision or is_linearity or is_stability:
+    if is_precision or is_linearity or is_stability or is_accuracy:
         units = st.text_input("Units", value="%")
         key_prefix = (
+            "accuracy"
+            if is_accuracy
+            else
             "stability"
             if is_stability
             else "linearity"
@@ -515,10 +582,10 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
-    if not (is_precision or is_linearity or is_stability):
+    if not (is_precision or is_linearity or is_stability or is_accuracy):
         metadata["Reference Method"] = reference_method
         metadata["Candidate Method"] = candidate_method
-    elif is_precision or is_linearity or is_stability:
+    elif is_precision or is_linearity or is_stability or is_accuracy:
         metadata.update(
             {
                 "Instrument Name": instrument_name,
@@ -768,6 +835,66 @@ def render_stability_criteria() -> dict[str, float]:
     }
 
 
+def render_accuracy_criteria() -> dict[str, float]:
+    """Render user-defined preliminary accuracy acceptance criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are user-defined preliminary screening thresholds, not regulatory approval."
+    )
+    row = st.columns(5)
+    with row[0]:
+        max_abs_bias = st.number_input(
+            "Maximum acceptable absolute bias",
+            min_value=0.0,
+            value=0.50,
+            step=0.05,
+            format="%.2f",
+        )
+    with row[1]:
+        max_abs_percent_bias = st.number_input(
+            "Maximum acceptable absolute percent bias",
+            min_value=0.0,
+            value=10.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[2]:
+        min_recovery = st.number_input(
+            "Minimum acceptable recovery %",
+            min_value=0.0,
+            max_value=150.0,
+            value=90.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[3]:
+        max_recovery = st.number_input(
+            "Maximum acceptable recovery %",
+            min_value=0.0,
+            max_value=200.0,
+            value=110.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[4]:
+        borderline_zone = st.number_input(
+            "Borderline zone (%)",
+            min_value=0.0,
+            value=2.0,
+            step=0.5,
+            format="%.2f",
+        )
+
+    return {
+        "Maximum Absolute Bias": max_abs_bias,
+        "Maximum Absolute Percent Bias": max_abs_percent_bias,
+        "Minimum Recovery": min_recovery,
+        "Maximum Recovery": max_recovery,
+        "Borderline Zone": borderline_zone,
+    }
+
+
 def optional_column_selectbox(
     label: str, columns: list[str], default_column: str | None = None
 ) -> str | None:
@@ -784,7 +911,7 @@ def show_decision(decision: str) -> None:
 
     if decision == "PASS":
         st.success("Overall preliminary decision: PASS")
-    elif decision in {"BORDERLINE", "REVIEW"}:
+    elif decision in {"BORDERLINE", "REVIEW", "PASS WITH CAUTION"}:
         st.warning(f"Overall preliminary decision: {decision}")
     else:
         label = "INVESTIGATE" if decision == "INVESTIGATE" else "FAIL"
@@ -877,6 +1004,341 @@ def build_stability_summary_csv(
     buffer.write("\nRisk Assessment\n")
     pd.DataFrame([{"Risk Assessment": risk_assessment}]).to_csv(buffer, index=False)
     return buffer.getvalue()
+
+
+def build_accuracy_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    overall_summary: pd.DataFrame,
+    level_decisions: pd.DataFrame,
+    accuracy_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    worst_case_summary: pd.DataFrame,
+) -> str:
+    """Build a sectioned CSV summary for accuracy study documentation."""
+
+    buffer = StringIO()
+    pd.DataFrame(
+        [{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]
+    ).to_csv(buffer, index=False)
+    buffer.write("\nOverall Accuracy Summary\n")
+    overall_summary.to_csv(buffer, index=False)
+    buffer.write("\nLevel-Specific Decision Table\n")
+    level_decisions.to_csv(buffer, index=False)
+    buffer.write("\nAcceptance Criteria Results\n")
+    criteria_table.to_csv(buffer, index=False)
+    buffer.write("\nAccuracy Summary\n")
+    accuracy_summary.to_csv(buffer, index=False)
+    buffer.write("\nBias Summary\n")
+    bias_summary.to_csv(buffer, index=False)
+    buffer.write("\nRecovery Summary\n")
+    recovery_summary.to_csv(buffer, index=False)
+    buffer.write("\nWorst-Case Performance\n")
+    worst_case_summary.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def render_accuracy_workspace(metadata: dict[str, object]) -> None:
+    """Render the Accuracy Study workflow."""
+
+    criteria = render_accuracy_criteria()
+
+    uploaded_file = st.file_uploader(
+        "Upload accuracy study data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload observed and expected results across assigned-value levels.",
+    )
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c accuracy study dataset",
+        value=uploaded_file is None,
+    )
+
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(ACCURACY_SAMPLE_DATA_PATH)
+
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+
+    st.subheader("Data Preview")
+    st.dataframe(data.head(20), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    all_columns = list(data.columns)
+    if len(numeric_columns) < 2:
+        st.error("Expected and observed numeric result columns are required.")
+        st.stop()
+
+    st.subheader("Column Selection")
+    first_row = st.columns(4)
+    with first_row[0]:
+        sample_id_column = st.selectbox(
+            "Sample ID column",
+            all_columns,
+            index=all_columns.index("Sample ID") if "Sample ID" in all_columns else 0,
+        )
+    with first_row[1]:
+        level_column = st.selectbox(
+            "Level column",
+            all_columns,
+            index=all_columns.index("Level") if "Level" in all_columns else 0,
+        )
+    with first_row[2]:
+        expected_column = st.selectbox(
+            "Expected Result column",
+            numeric_columns,
+            index=numeric_columns.index("Expected Result")
+            if "Expected Result" in numeric_columns
+            else 0,
+        )
+    with first_row[3]:
+        observed_column = st.selectbox(
+            "Observed Result column",
+            numeric_columns,
+            index=numeric_columns.index("Observed Result")
+            if "Observed Result" in numeric_columns
+            else min(1, len(numeric_columns) - 1),
+        )
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        units_column = optional_column_selectbox(
+            "Units column",
+            all_columns,
+            "Units" if "Units" in all_columns else None,
+        )
+    with second_row[1]:
+        replicate_column = optional_column_selectbox(
+            "Replicate column",
+            all_columns,
+            "Replicate" if "Replicate" in all_columns else None,
+        )
+    with second_row[2]:
+        include_column = optional_column_selectbox(
+            "Include in Analysis column",
+            all_columns,
+            "Include in Analysis" if "Include in Analysis" in all_columns else None,
+        )
+
+    if expected_column == observed_column:
+        st.warning("Select different expected and observed result columns.")
+
+    data_quality_warnings = assess_accuracy_data_quality(
+        data=data,
+        sample_id_column=sample_id_column,
+        level_column=level_column,
+        expected_column=expected_column,
+        observed_column=observed_column,
+        include_column=include_column,
+    )
+    st.subheader("Data Quality Review")
+    if data_quality_warnings:
+        for warning in data_quality_warnings:
+            st.warning(warning)
+    else:
+        st.success("No automatic data quality warnings were detected for the selected columns.")
+
+    run_analysis = st.button("Run Accuracy Analysis", type="primary")
+    if run_analysis:
+        if expected_column == observed_column:
+            st.stop()
+
+        try:
+            result = run_accuracy_study(
+                data=data,
+                sample_id_column=sample_id_column,
+                level_column=level_column,
+                expected_column=expected_column,
+                observed_column=observed_column,
+                units_column=units_column,
+                replicate_column=replicate_column,
+                include_column=include_column,
+                max_abs_bias=criteria["Maximum Absolute Bias"],
+                max_abs_percent_bias=criteria["Maximum Absolute Percent Bias"],
+                min_recovery=criteria["Minimum Recovery"],
+                max_recovery=criteria["Maximum Recovery"],
+                borderline_zone=criteria["Borderline Zone"],
+            )
+        except Exception as exc:
+            st.error(f"Accuracy analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_accuracy_criteria(
+            result.overall_summary,
+            max_abs_bias=criteria["Maximum Absolute Bias"],
+            max_abs_percent_bias=criteria["Maximum Absolute Percent Bias"],
+            min_recovery=criteria["Minimum Recovery"],
+            max_recovery=criteria["Maximum Recovery"],
+            borderline_zone=criteria["Borderline Zone"],
+        )
+        decision = str(criteria_result["decision"])
+        criteria_table = build_criteria_table(criteria_result)
+        display_criteria = format_accuracy_criteria_table(criteria_table)
+        display_overall = format_accuracy_overall_summary(result.overall_summary)
+        display_accuracy = format_accuracy_table(result.accuracy_summary)
+        display_level_decisions = format_accuracy_level_decision_table(
+            result.level_decision_table
+        )
+        display_bias = format_accuracy_table(result.bias_summary)
+        display_recovery = format_accuracy_table(result.recovery_summary)
+        display_worst_case = format_accuracy_worst_case_summary(
+            result.worst_case_summary
+        )
+        interpretation = generate_accuracy_interpretation(
+            result.overall_summary,
+            result.worst_case_summary,
+            criteria,
+            decision,
+            metadata,
+        )
+
+        render_accuracy_executive_summary(
+            result.overall_summary,
+            result.worst_case_summary,
+            decision,
+            display_criteria,
+            result.level_decision_table,
+        )
+
+        st.subheader("Accuracy Results")
+        show_decision(decision)
+        st.markdown("**Level-Specific Decision Table**")
+        render_badged_criteria_table(display_level_decisions)
+        st.markdown("**Overall Accuracy Summary**")
+        st.dataframe(display_overall, width="stretch")
+        st.markdown("**Accuracy Summary Table**")
+        st.dataframe(display_accuracy, width="stretch")
+
+        st.subheader("Acceptance Criteria Dashboard")
+        st.markdown(
+            accuracy_criteria_dashboard_html(display_criteria),
+            unsafe_allow_html=True,
+        )
+
+        st.subheader("Acceptance Criteria Results")
+        render_badged_criteria_table(display_criteria)
+
+        summary_left, summary_right = st.columns(2)
+        with summary_left:
+            st.subheader("Bias Summary")
+            st.dataframe(display_bias, width="stretch")
+        with summary_right:
+            st.subheader("Recovery Summary")
+            st.dataframe(display_recovery, width="stretch")
+
+        st.subheader("Worst-Case Performance")
+        st.dataframe(display_worst_case, width="stretch")
+
+        st.subheader("Interpretation")
+        st.info(interpretation)
+
+        st.subheader("Visualizations")
+        expected_observed_plot = create_accuracy_expected_observed_plot(
+            result.accuracy_summary
+        )
+        percent_bias_plot = create_accuracy_percent_bias_plot(
+            result.accuracy_summary,
+            criteria["Maximum Absolute Percent Bias"],
+            criteria["Borderline Zone"],
+        )
+        recovery_plot = create_accuracy_recovery_plot(
+            result.accuracy_summary,
+            criteria["Minimum Recovery"],
+            criteria["Maximum Recovery"],
+            criteria["Borderline Zone"],
+        )
+        distribution_plot = create_accuracy_replicate_distribution_plot(
+            result.analyzed_data
+        )
+        heatmap_plot = create_accuracy_performance_heatmap(result.accuracy_summary)
+        individual_bias_plot = create_individual_accuracy_bias_plot(
+            result.analyzed_data,
+            criteria["Maximum Absolute Bias"],
+        )
+        st.plotly_chart(expected_observed_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(percent_bias_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(recovery_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(heatmap_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(individual_bias_plot, width="stretch")
+        st.plotly_chart(distribution_plot, width="stretch")
+
+        st.subheader("Analyzed Data")
+        st.dataframe(result.analyzed_data, width="stretch")
+
+        html_report = build_accuracy_html_report(
+            accuracy_summary=result.accuracy_summary,
+            bias_summary=result.bias_summary,
+            recovery_summary=result.recovery_summary,
+            level_decision_table=result.level_decision_table,
+            worst_case_summary=result.worst_case_summary,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+            visualization_html={
+                "Expected vs Observed Plot": expected_observed_plot.to_html(
+                    full_html=False, include_plotlyjs="cdn"
+                ),
+                "Percent Bias by Level Plot": percent_bias_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Recovery by Level Plot": recovery_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Replicate Distribution Plot": distribution_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Accuracy Performance Heatmap": heatmap_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Individual Sample Bias Plot": individual_bias_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+            },
+        )
+
+        export_left, export_right = st.columns(2)
+        with export_left:
+            st.download_button(
+                "Download accuracy summary CSV",
+                data=build_accuracy_summary_csv(
+                    metadata,
+                    display_criteria,
+                    display_overall,
+                    display_level_decisions,
+                    display_accuracy,
+                    display_bias,
+                    display_recovery,
+                    display_worst_case,
+                ).encode("utf-8"),
+                file_name="accuracy_summary.csv",
+                mime="text/csv",
+            )
+        with export_right:
+            st.download_button(
+                "Download accuracy report HTML",
+                data=html_report.encode("utf-8"),
+                file_name="accuracy_study_report.html",
+                mime="text/html",
+            )
 
 
 def render_precision_workspace(metadata: dict[str, object]) -> None:
@@ -1648,6 +2110,11 @@ def main() -> None:
     if study_type == "Stability Study":
         metadata = render_study_documentation(study_type)
         render_stability_workspace(metadata)
+        st.stop()
+
+    if study_type == "Accuracy Study":
+        metadata = render_study_documentation(study_type)
+        render_accuracy_workspace(metadata)
         st.stop()
 
     if study_type != "Method Comparison":

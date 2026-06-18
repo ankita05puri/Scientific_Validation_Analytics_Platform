@@ -81,6 +81,25 @@ STABILITY_REPORT_SECTIONS = (
 )
 
 
+ACCURACY_REPORT_SECTIONS = (
+    "Study Metadata",
+    "Acceptance Criteria",
+    "Executive Summary",
+    "Accuracy Results",
+    "Level-Specific Decision Table",
+    "Acceptance Criteria Results",
+    "Bias Summary",
+    "Recovery Summary",
+    "Worst-Case Performance",
+    "Visualizations",
+    "Interpretation",
+    "Analyst Notes",
+    "Deviations",
+    "Preliminary Conclusion",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -112,13 +131,38 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
         report_sections=STANDARD_REPORT_SECTIONS,
         implemented=True,
     ),
-    "Accuracy": StudyTypeConfig(
-        name="Accuracy",
-        description="Placeholder module for accuracy studies.",
-        metrics=("Bias", "Recovery", "Agreement with expected value"),
-        acceptance_criteria=("Accuracy limits", "Allowable total error"),
-        visualizations=("Accuracy trend plots",),
-        report_sections=STANDARD_REPORT_SECTIONS,
+    "Accuracy Study": StudyTypeConfig(
+        name="Accuracy Study",
+        description="Observed-versus-expected accuracy workflow for assigned-value assay validation.",
+        metrics=(
+            "N",
+            "Expected result",
+            "Mean observed result",
+            "SD",
+            "Difference",
+            "Absolute difference",
+            "Percent bias",
+            "Percent recovery",
+            "95% confidence intervals",
+            "Level-specific decisions",
+            "Worst-case performance",
+        ),
+        acceptance_criteria=(
+            "Maximum absolute bias",
+            "Maximum absolute percent bias",
+            "Recovery range",
+            "Pass with caution borderline zone",
+        ),
+        visualizations=(
+            "Expected vs observed plot",
+            "Percent bias by level plot",
+            "Recovery by level plot",
+            "Replicate distribution plot",
+            "Accuracy performance heatmap",
+            "Individual sample bias plot",
+        ),
+        report_sections=ACCURACY_REPORT_SECTIONS,
+        implemented=True,
     ),
     "Precision Study": StudyTypeConfig(
         name="Precision Study",

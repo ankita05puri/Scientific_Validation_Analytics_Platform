@@ -56,7 +56,18 @@ Build a modular scientific validation platform that enables laboratories and ass
 
 ## In Progress
 
-### v0.5.0 - Validation Reports Engine
+### v0.5.0 - Accuracy Study Module
+
+- Observed vs expected analysis
+- Assigned-value comparison workflows
+- Bias and recovery assessment
+- Worst-case level review
+- Acceptance criteria engine
+- HTML reporting
+
+## Planned
+
+### v0.6.0 - Validation Reports Engine
 
 - Cross-study reporting
 - Consolidated validation package
@@ -64,30 +75,28 @@ Build a modular scientific validation platform that enables laboratories and ass
 - Multi-study export
 - PDF generation
 
-## Planned
-
-### v0.6.0 - DBS Validation Module
+### v0.7.0 - DBS Validation Module
 
 - Dried Blood Spot validation workflows
 - DBS vs whole blood comparison
 - Recovery correction analysis
 - Agreement assessment
 
-### v0.7.0 - Microtainer Validation Module
+### v0.8.0 - Microtainer Validation Module
 
 - Capillary specimen validation
 - Venous vs microtainer comparison
 - Bias assessment
 - Agreement workflows
 
-### v0.8.0 - Detection Capability Module
+### v0.9.0 - Detection Capability Module
 
 - Limit of Blank (LoB)
 - Limit of Detection (LoD)
 - Limit of Quantitation (LoQ)
 - Detection capability reporting
 
-### v0.9.0 - Validation Dashboard
+### v0.10.0 - Validation Dashboard
 
 - Study management
 - Study history
@@ -102,6 +111,7 @@ A complete validation analytics platform supporting:
 - Precision
 - Linearity
 - Stability
+- Accuracy
 - DBS Validation
 - Microtainer Validation
 - Detection Capability

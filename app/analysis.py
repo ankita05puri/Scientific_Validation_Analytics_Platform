@@ -79,8 +79,10 @@ class AccuracyResult:
     accuracy_summary: pd.DataFrame
     bias_summary: pd.DataFrame
     recovery_summary: pd.DataFrame
+    level_decision_table: pd.DataFrame
     worst_case_summary: dict[str, float | str]
     overall_summary: dict[str, float | str]
+    data_quality_warnings: list[str]
     expected_column: str
     observed_column: str
     level_column: str
@@ -96,6 +98,32 @@ def _safe_float(value: float) -> float:
     if pd.isna(value):
         return np.nan
     return float(value)
+
+
+def _max_threshold_status(observed: float, limit: float, zone: float) -> str:
+    """Classify a maximum-threshold observation using a borderline zone."""
+
+    if pd.isna(observed):
+        return "FAIL"
+    caution_floor = max(0.0, limit - zone)
+    if observed >= limit:
+        return "FAIL"
+    if observed > caution_floor:
+        return "PASS WITH CAUTION"
+    return "PASS"
+
+
+def _min_threshold_status(observed: float, limit: float, zone: float) -> str:
+    """Classify a minimum-threshold observation using a borderline zone."""
+
+    if pd.isna(observed):
+        return "FAIL"
+    caution_ceiling = limit + zone
+    if observed <= limit:
+        return "FAIL"
+    if observed < caution_ceiling:
+        return "PASS WITH CAUTION"
+    return "PASS"
 
 
 def prepare_paired_data(
@@ -1208,6 +1236,433 @@ def run_stability_study(
         timepoint_column=timepoint_column,
         result_column=result_column,
         storage_condition_column=storage_condition_column,
+        units_column=units_column,
+        replicate_column=replicate_column,
+        include_column=include_column,
+    )
+
+
+def assess_accuracy_data_quality(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    level_column: str,
+    expected_column: str,
+    observed_column: str,
+    include_column: str | None = None,
+    minimum_replicates: int = 2,
+) -> list[str]:
+    """Return reviewer-facing data quality warnings for accuracy input data."""
+
+    selected_columns = [
+        sample_id_column,
+        level_column,
+        expected_column,
+        observed_column,
+    ]
+    if include_column:
+        selected_columns.append(include_column)
+    quality_data = data[list(dict.fromkeys(selected_columns))].copy()
+    if include_column:
+        include_values = (
+            quality_data[include_column].astype(str).str.strip().str.lower()
+        )
+        quality_data = quality_data[include_values.isin(["yes", "y", "true", "1"])]
+
+    expected = pd.to_numeric(quality_data[expected_column], errors="coerce")
+    observed = pd.to_numeric(quality_data[observed_column], errors="coerce")
+    warnings: list[str] = []
+    missing_expected = int(expected.isna().sum())
+    missing_observed = int(observed.isna().sum())
+    duplicate_ids = int(quality_data[sample_id_column].duplicated().sum())
+    non_positive_expected = int((expected <= 0).fillna(False).sum())
+
+    if missing_expected:
+        warnings.append(
+            f"{missing_expected} row(s) have missing or non-numeric expected values and will be excluded from analysis."
+        )
+    if missing_observed:
+        warnings.append(
+            f"{missing_observed} row(s) have missing or non-numeric observed values and will be excluded from analysis."
+        )
+    if duplicate_ids:
+        warnings.append(
+            f"{duplicate_ids} duplicate sample ID occurrence(s) were detected. Confirm that duplicate IDs represent intended replicates."
+        )
+    if non_positive_expected:
+        warnings.append(
+            f"{non_positive_expected} row(s) have zero or negative expected values. Percent bias and recovery require positive expected values."
+        )
+
+    replicate_counts = (
+        quality_data.assign(
+            **{
+                "_Expected Numeric": expected,
+                "_Observed Numeric": observed,
+            }
+        )
+        .dropna(subset=["_Expected Numeric", "_Observed Numeric"])
+        .groupby(level_column, dropna=False)
+        .size()
+    )
+    insufficient_levels = [
+        str(level)
+        for level, count in replicate_counts.items()
+        if count < minimum_replicates
+    ]
+    if insufficient_levels:
+        warnings.append(
+            "Insufficient replicates detected for level(s): "
+            + ", ".join(insufficient_levels)
+            + f". At least {minimum_replicates} replicates are recommended for reviewer confidence."
+        )
+    return warnings
+
+
+def prepare_accuracy_data(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    level_column: str,
+    expected_column: str,
+    observed_column: str,
+    units_column: str | None = None,
+    replicate_column: str | None = None,
+    include_column: str | None = None,
+) -> pd.DataFrame:
+    """Clean observed-vs-expected accuracy data."""
+
+    selected_columns = [sample_id_column, level_column, expected_column, observed_column]
+    optional_columns = [units_column, replicate_column, include_column]
+    selected_columns.extend([column for column in optional_columns if column])
+    selected_columns = list(dict.fromkeys(selected_columns))
+
+    accuracy_data = data[selected_columns].copy()
+    rename_map = {
+        sample_id_column: "Sample ID",
+        level_column: "Level",
+        expected_column: "Expected Result",
+        observed_column: "Observed Result",
+    }
+    if units_column:
+        rename_map[units_column] = "Units"
+    if replicate_column:
+        rename_map[replicate_column] = "Replicate"
+    if include_column:
+        rename_map[include_column] = "Include in Analysis"
+
+    accuracy_data = accuracy_data.rename(columns=rename_map)
+    if "Include in Analysis" in accuracy_data.columns:
+        include_values = (
+            accuracy_data["Include in Analysis"].astype(str).str.strip().str.lower()
+        )
+        accuracy_data = accuracy_data[include_values.isin(["yes", "y", "true", "1"])]
+
+    accuracy_data["Expected Result"] = pd.to_numeric(
+        accuracy_data["Expected Result"], errors="coerce"
+    )
+    accuracy_data["Observed Result"] = pd.to_numeric(
+        accuracy_data["Observed Result"], errors="coerce"
+    )
+    if "Replicate" in accuracy_data.columns:
+        accuracy_data["Replicate"] = pd.to_numeric(
+            accuracy_data["Replicate"], errors="coerce"
+        )
+
+    accuracy_data = accuracy_data.dropna(
+        subset=["Sample ID", "Level", "Expected Result", "Observed Result"]
+    ).reset_index(drop=True)
+    if accuracy_data.empty:
+        raise ValueError("No valid observed and expected accuracy rows are available.")
+    return accuracy_data
+
+
+def calculate_accuracy_summary(
+    analyzed_data: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float | str], dict[str, float | str]]:
+    """Calculate accuracy summary, bias summary, recovery summary, and overall metrics."""
+
+    summary = (
+        analyzed_data.groupby(["Level", "Expected Result"], dropna=False)["Observed Result"]
+        .agg(N="count", **{"Mean Observed Result": "mean", "SD": "std"})
+        .reset_index()
+    )
+    summary["Difference"] = summary["Mean Observed Result"] - summary["Expected Result"]
+    summary["Absolute Difference"] = summary["Difference"].abs()
+    summary["Percent Bias"] = np.where(
+        summary["Expected Result"] != 0,
+        (summary["Difference"] / summary["Expected Result"]) * 100,
+        np.nan,
+    )
+    summary["Absolute Percent Bias"] = summary["Percent Bias"].abs()
+    summary["Percent Recovery"] = np.where(
+        summary["Expected Result"] != 0,
+        (summary["Mean Observed Result"] / summary["Expected Result"]) * 100,
+        np.nan,
+    )
+    summary["Mean Observed 95% CI Lower"] = np.where(
+        summary["N"] > 1,
+        summary["Mean Observed Result"] - (1.96 * summary["SD"] / np.sqrt(summary["N"])),
+        np.nan,
+    )
+    summary["Mean Observed 95% CI Upper"] = np.where(
+        summary["N"] > 1,
+        summary["Mean Observed Result"] + (1.96 * summary["SD"] / np.sqrt(summary["N"])),
+        np.nan,
+    )
+    summary["Bias 95% CI Lower"] = np.where(
+        summary["N"] > 1,
+        summary["Difference"] - (1.96 * summary["SD"] / np.sqrt(summary["N"])),
+        np.nan,
+    )
+    summary["Bias 95% CI Upper"] = np.where(
+        summary["N"] > 1,
+        summary["Difference"] + (1.96 * summary["SD"] / np.sqrt(summary["N"])),
+        np.nan,
+    )
+    summary = summary.sort_values("Expected Result").reset_index(drop=True)
+
+    bias_summary = summary[
+        [
+            "Level",
+            "Expected Result",
+            "Mean Observed Result",
+            "Difference",
+            "Absolute Difference",
+            "Bias 95% CI Lower",
+            "Bias 95% CI Upper",
+            "Percent Bias",
+            "Absolute Percent Bias",
+        ]
+    ].copy()
+    recovery_summary = summary[
+        ["Level", "Expected Result", "Mean Observed Result", "Percent Recovery"]
+    ].copy()
+
+    max_bias_row = summary.loc[summary["Absolute Percent Bias"].idxmax()]
+    min_recovery_row = summary.loc[summary["Percent Recovery"].idxmin()]
+    max_recovery_row = summary.loc[summary["Percent Recovery"].idxmax()]
+    worst_case_summary = {
+        "Worst Level": str(max_bias_row["Level"]),
+        "Highest Absolute Percent Bias": _safe_float(max_bias_row["Absolute Percent Bias"]),
+        "Lowest Recovery": _safe_float(min_recovery_row["Percent Recovery"]),
+        "Lowest Recovery Level": str(min_recovery_row["Level"]),
+        "Highest Recovery": _safe_float(max_recovery_row["Percent Recovery"]),
+        "Highest Recovery Level": str(max_recovery_row["Level"]),
+    }
+    overall_summary = {
+        "N": int(analyzed_data["Observed Result"].count()),
+        "Overall Mean Bias": _safe_float(summary["Difference"].mean()),
+        "Overall Mean Percent Bias": _safe_float(summary["Percent Bias"].mean()),
+        "Maximum Absolute Bias": _safe_float(summary["Absolute Difference"].max()),
+        "Maximum Absolute Percent Bias": _safe_float(summary["Absolute Percent Bias"].max()),
+        "Minimum Recovery": _safe_float(summary["Percent Recovery"].min()),
+        "Maximum Recovery": _safe_float(summary["Percent Recovery"].max()),
+        "Worst Level": worst_case_summary["Worst Level"],
+    }
+    return summary, bias_summary, recovery_summary, worst_case_summary, overall_summary
+
+
+def build_accuracy_level_decision_table(
+    accuracy_summary: pd.DataFrame,
+    max_abs_bias: float,
+    max_abs_percent_bias: float,
+    min_recovery: float,
+    max_recovery: float,
+    borderline_zone: float,
+) -> pd.DataFrame:
+    """Build level-specific accuracy decisions for validation review."""
+
+    rows: list[dict[str, object]] = []
+    bias_zone = max_abs_bias * (borderline_zone / 100)
+    for _, row in accuracy_summary.iterrows():
+        statuses = [
+            _max_threshold_status(row["Absolute Difference"], max_abs_bias, bias_zone),
+            _max_threshold_status(
+                row["Absolute Percent Bias"], max_abs_percent_bias, borderline_zone
+            ),
+            _min_threshold_status(row["Percent Recovery"], min_recovery, borderline_zone),
+            _max_threshold_status(row["Percent Recovery"], max_recovery, borderline_zone),
+        ]
+        if "FAIL" in statuses:
+            status = "FAIL"
+        elif "PASS WITH CAUTION" in statuses:
+            status = "PASS WITH CAUTION"
+        else:
+            status = "PASS"
+
+        rows.append(
+            {
+                "Level": row["Level"],
+                "N": int(row["N"]),
+                "Mean Observed Result": row["Mean Observed Result"],
+                "Mean Observed 95% CI Lower": row["Mean Observed 95% CI Lower"],
+                "Mean Observed 95% CI Upper": row["Mean Observed 95% CI Upper"],
+                "Expected Result": row["Expected Result"],
+                "Absolute Bias": row["Absolute Difference"],
+                "Bias 95% CI Lower": row["Bias 95% CI Lower"],
+                "Bias 95% CI Upper": row["Bias 95% CI Upper"],
+                "Percent Bias": row["Percent Bias"],
+                "Recovery %": row["Percent Recovery"],
+                "Pass/Fail Status": status,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def evaluate_accuracy_criteria(
+    overall_summary: dict[str, float | str],
+    max_abs_bias: float,
+    max_abs_percent_bias: float,
+    min_recovery: float,
+    max_recovery: float,
+    borderline_zone: float,
+) -> dict[str, object]:
+    """Evaluate user-defined preliminary accuracy acceptance criteria."""
+
+    checks = []
+
+    def max_threshold_check(label: str, observed: float, limit: float, unit: str, zone: float) -> dict[str, object]:
+        caution_floor = max(0.0, limit - zone)
+        return {
+            "Criterion": label,
+            "Observed": observed,
+            "Acceptance Limit": f"< {limit:g}{unit}",
+            "Met": not pd.isna(observed) and observed <= caution_floor,
+            "Borderline": (
+                not pd.isna(observed)
+                and observed > caution_floor
+                and observed < limit
+            ),
+        }
+
+    def min_threshold_check(label: str, observed: float, limit: float, unit: str, zone: float) -> dict[str, object]:
+        caution_ceiling = limit + zone
+        return {
+            "Criterion": label,
+            "Observed": observed,
+            "Acceptance Limit": f"> {limit:g}{unit}",
+            "Met": not pd.isna(observed) and observed >= caution_ceiling,
+            "Borderline": (
+                not pd.isna(observed)
+                and observed > limit
+                and observed < caution_ceiling
+            ),
+        }
+
+    checks.append(
+        max_threshold_check(
+            "Maximum absolute bias",
+            overall_summary.get("Maximum Absolute Bias", np.nan),
+            max_abs_bias,
+            "",
+            max_abs_bias * (borderline_zone / 100),
+        )
+    )
+    checks.append(
+        max_threshold_check(
+            "Maximum absolute percent bias",
+            overall_summary.get("Maximum Absolute Percent Bias", np.nan),
+            max_abs_percent_bias,
+            "%",
+            borderline_zone,
+        )
+    )
+    checks.append(
+        min_threshold_check(
+            "Minimum recovery",
+            overall_summary.get("Minimum Recovery", np.nan),
+            min_recovery,
+            "%",
+            borderline_zone,
+        )
+    )
+    max_recovery_observed = overall_summary.get("Maximum Recovery", np.nan)
+    caution_floor = max_recovery - borderline_zone
+    checks.append(
+        {
+            "Criterion": "Maximum recovery",
+            "Observed": max_recovery_observed,
+            "Acceptance Limit": f"< {max_recovery:g}%",
+            "Met": not pd.isna(max_recovery_observed) and max_recovery_observed <= caution_floor,
+            "Borderline": (
+                not pd.isna(max_recovery_observed)
+                and max_recovery_observed > caution_floor
+                and max_recovery_observed < max_recovery
+            ),
+        }
+    )
+
+    if all(check["Met"] for check in checks):
+        decision = "PASS"
+    elif all(check["Met"] or check["Borderline"] for check in checks):
+        decision = "PASS WITH CAUTION"
+    else:
+        decision = "FAIL"
+    return {"decision": decision, "checks": checks}
+
+
+def run_accuracy_study(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    level_column: str,
+    expected_column: str,
+    observed_column: str,
+    units_column: str | None = None,
+    replicate_column: str | None = None,
+    include_column: str | None = None,
+    max_abs_bias: float = 0.50,
+    max_abs_percent_bias: float = 10.0,
+    min_recovery: float = 90.0,
+    max_recovery: float = 110.0,
+    borderline_zone: float = 2.0,
+) -> AccuracyResult:
+    """Run the complete accuracy study workflow."""
+
+    data_quality_warnings = assess_accuracy_data_quality(
+        data=data,
+        sample_id_column=sample_id_column,
+        level_column=level_column,
+        expected_column=expected_column,
+        observed_column=observed_column,
+        include_column=include_column,
+    )
+    analyzed_data = prepare_accuracy_data(
+        data=data,
+        sample_id_column=sample_id_column,
+        level_column=level_column,
+        expected_column=expected_column,
+        observed_column=observed_column,
+        units_column=units_column,
+        replicate_column=replicate_column,
+        include_column=include_column,
+    )
+    (
+        accuracy_summary,
+        bias_summary,
+        recovery_summary,
+        worst_case_summary,
+        overall_summary,
+    ) = calculate_accuracy_summary(analyzed_data)
+    level_decision_table = build_accuracy_level_decision_table(
+        accuracy_summary,
+        max_abs_bias=max_abs_bias,
+        max_abs_percent_bias=max_abs_percent_bias,
+        min_recovery=min_recovery,
+        max_recovery=max_recovery,
+        borderline_zone=borderline_zone,
+    )
+    return AccuracyResult(
+        analyzed_data=analyzed_data,
+        accuracy_summary=accuracy_summary,
+        bias_summary=bias_summary,
+        recovery_summary=recovery_summary,
+        level_decision_table=level_decision_table,
+        worst_case_summary=worst_case_summary,
+        overall_summary=overall_summary,
+        data_quality_warnings=data_quality_warnings,
+        expected_column=expected_column,
+        observed_column=observed_column,
+        level_column=level_column,
+        sample_id_column=sample_id_column,
         units_column=units_column,
         replicate_column=replicate_column,
         include_column=include_column,
