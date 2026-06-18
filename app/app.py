@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from html import escape
 from io import StringIO
 from pathlib import Path
@@ -168,6 +168,9 @@ from reports.report_builder import build_study_section_html
 
 
 APP_TITLE = "Scientific Validation Analytics Platform"
+APP_VERSION = "v1.0.0"
+APP_STATUS = "Production Release"
+RELEASE_NAME = "Scientific Validation Analytics Platform"
 ROOT_DIR = PROJECT_ROOT
 SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "hba1c_method_comparison.csv"
 PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_study_hba1c.csv"
@@ -188,6 +191,145 @@ DASHBOARD_MODULES = (
     ("Microtainer Validation", "Small-volume specimen comparison workflows."),
     ("Validation Reports", "Scientific summary reports and review packages."),
 )
+CORE_VALIDATION_MODULES = (
+    "Method Comparison",
+    "Precision",
+    "Accuracy",
+    "Linearity",
+    "Stability",
+    "Detection Capability",
+    "DBS Validation",
+    "Microtainer Validation",
+)
+STUDY_LIFECYCLE_STATES = (
+    "Draft",
+    "Submitted for Review",
+    "Under Review",
+    "Approved",
+    "Rejected",
+    "Locked",
+    "Archived",
+)
+REPORT_ELIGIBLE_STATES = {"Approved", "Locked"}
+PLATFORM_CAPABILITIES = CORE_VALIDATION_MODULES + ("Validation Reports",)
+SAMPLE_DATASETS = (
+    {
+        "Study Type": "Method Comparison",
+        "Dataset": "HbA1c Method Comparison",
+        "File": SAMPLE_DATA_PATH,
+        "Description": "Paired reference and candidate HbA1c results.",
+    },
+    {
+        "Study Type": "Precision",
+        "Dataset": "HbA1c Precision Study",
+        "File": PRECISION_SAMPLE_DATA_PATH,
+        "Description": "Low and high QC repeated measurements across days, runs, and replicates.",
+    },
+    {
+        "Study Type": "Accuracy",
+        "Dataset": "HbA1c Accuracy Study",
+        "File": ACCURACY_SAMPLE_DATA_PATH,
+        "Description": "Observed HbA1c values compared with expected target levels.",
+    },
+    {
+        "Study Type": "Linearity",
+        "Dataset": "HbA1c Linearity Study",
+        "File": LINEARITY_SAMPLE_DATA_PATH,
+        "Description": "Expected and observed HbA1c values across the analytical range.",
+    },
+    {
+        "Study Type": "Stability",
+        "Dataset": "HbA1c Stability Study",
+        "File": STABILITY_SAMPLE_DATA_PATH,
+        "Description": "Baseline and timepoint results across storage conditions.",
+    },
+    {
+        "Study Type": "Detection Capability",
+        "Dataset": "HbA1c Detection Capability",
+        "File": DETECTION_SAMPLE_DATA_PATH,
+        "Description": "Blank, low-concentration, and quantitation-level replicates.",
+    },
+    {
+        "Study Type": "DBS Validation",
+        "Dataset": "HbA1c DBS Validation",
+        "File": DBS_SAMPLE_DATA_PATH,
+        "Description": "DBS results paired with reference venous whole blood values.",
+    },
+    {
+        "Study Type": "Microtainer Validation",
+        "Dataset": "HbA1c Microtainer Validation",
+        "File": MICROTAINER_SAMPLE_DATA_PATH,
+        "Description": "Microtainer results paired with reference venous specimen values.",
+    },
+)
+DEFAULT_PROJECTS = [
+    {
+        "Project Name": "HbA1c Validation Program",
+        "Program Name": "HbA1c Validation Program",
+        "Assay": "HbA1c",
+        "Assay / Biomarker": "HbA1c",
+        "Program Owner": "Validation Team",
+        "Study Status": "Validation Complete",
+        "Status": "Completed",
+        "Start Date": "2026-06-18",
+        "Target Completion Date": "2026-06-18",
+        "Reviewer": "",
+        "Notes": "Demonstration validation program containing all core validation study types.",
+        "Required Studies": list(CORE_VALIDATION_MODULES),
+        "Completed Studies": list(CORE_VALIDATION_MODULES),
+        "Last Updated": "2026-06-18",
+        "Overall Status": "Completed",
+        "Final Package Generated": True,
+    },
+    {
+        "Project Name": "Ferritin Validation Program",
+        "Program Name": "Ferritin Validation Program",
+        "Assay": "Ferritin",
+        "Assay / Biomarker": "Ferritin",
+        "Program Owner": "Validation Team",
+        "Study Status": "In Progress",
+        "Status": "In Progress",
+        "Start Date": "2026-06-18",
+        "Target Completion Date": "2026-07-18",
+        "Reviewer": "",
+        "Notes": "",
+        "Required Studies": list(CORE_VALIDATION_MODULES),
+        "Completed Studies": ["Method Comparison", "Precision", "Accuracy"],
+        "Last Updated": "2026-06-18",
+        "Overall Status": "In Progress",
+        "Final Package Generated": False,
+    },
+    {
+        "Project Name": "Vitamin D Validation Program",
+        "Program Name": "Vitamin D Validation Program",
+        "Assay": "Vitamin D",
+        "Assay / Biomarker": "Vitamin D",
+        "Program Owner": "Validation Team",
+        "Study Status": "Planned",
+        "Status": "Not Started",
+        "Start Date": "2026-06-18",
+        "Target Completion Date": "2026-08-18",
+        "Reviewer": "",
+        "Notes": "",
+        "Required Studies": list(CORE_VALIDATION_MODULES),
+        "Completed Studies": [],
+        "Last Updated": "2026-06-18",
+        "Overall Status": "Not Started",
+        "Final Package Generated": False,
+    },
+]
+DEFAULT_PLATFORM_SETTINGS = {
+    "Laboratory Name": "",
+    "Department": "",
+    "Address": "",
+    "Analyst Name": "",
+    "Reviewer Name": "",
+    "Report Logo": "",
+    "Report Footer": "Generated by the Scientific Validation Analytics Platform.",
+    "Organization Branding": "",
+    "PDF Settings": "Standard scientific report layout",
+    "Default Report Format": "PDF and HTML",
+}
 
 
 def inject_validation_styles() -> None:
@@ -283,7 +425,126 @@ def inject_validation_styles() -> None:
             background: #ffe3e3;
             color: #c92a2a;
           }
+          .svap-page-header {
+            border-bottom: 1px solid #d9e2ec;
+            margin: 4px 0 20px;
+            padding-bottom: 14px;
+          }
+          .svap-page-kicker {
+            color: #52606d;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0;
+            text-transform: uppercase;
+          }
+          .svap-page-title {
+            color: #102a43;
+            font-size: 1.65rem;
+            font-weight: 750;
+            line-height: 1.2;
+            margin-top: 4px;
+          }
+          .svap-page-subtitle {
+            color: #52606d;
+            font-size: 0.98rem;
+            margin-top: 6px;
+          }
+          .svap-card-button {
+            border: 1px solid #d9e2ec;
+            border-radius: 8px;
+            background: #ffffff;
+            min-height: 132px;
+            padding: 14px 16px;
+          }
+          .svap-check {
+            color: #1f7a1f;
+            font-weight: 800;
+          }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def initialize_platform_state() -> None:
+    """Initialize local v1.0 platform state."""
+
+    if "platform_settings" not in st.session_state:
+        st.session_state.platform_settings = DEFAULT_PLATFORM_SETTINGS.copy()
+    if "validation_projects" not in st.session_state:
+        st.session_state.validation_projects = [project.copy() for project in DEFAULT_PROJECTS]
+    st.session_state.validation_projects = [
+        normalize_program(project) for project in st.session_state.validation_projects
+    ]
+    if "reports_library" not in st.session_state:
+        st.session_state.reports_library = [
+            {
+                "Report Name": "HbA1c Full Validation Package",
+                "Project": "HbA1c Validation Program",
+                "Study Type": "Validation Reports",
+                "Date": "2026-06-18",
+                "Analyst": st.session_state.platform_settings.get("Analyst Name", ""),
+                "Format": "HTML / PDF",
+            },
+            {
+                "Report Name": "HbA1c Microtainer Validation Report",
+                "Project": "HbA1c Validation Program",
+                "Study Type": "Microtainer Validation",
+                "Date": "2026-06-18",
+                "Analyst": st.session_state.platform_settings.get("Analyst Name", ""),
+                "Format": "HTML / PDF / CSV",
+            },
+        ]
+    if "study_lifecycle_records" not in st.session_state:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        st.session_state.study_lifecycle_records = [
+            {
+                "Study ID": f"hba1c-{study.lower().replace(' ', '-').replace('/', '-')}",
+                "Project": "HbA1c Validation Program",
+                "Study Name": f"HbA1c {study}",
+                "Study Type": study,
+                "Assay": "HbA1c",
+                "Analyst": st.session_state.platform_settings.get("Analyst Name", ""),
+                "Completion Date": "2026-06-18",
+                "Status": "Locked",
+                "Version": 1,
+                "Reviewer Comments": "",
+                "Last Updated": timestamp,
+                "Locked": True,
+            }
+            for study in CORE_VALIDATION_MODULES
+        ]
+    if "approval_history" not in st.session_state:
+        st.session_state.approval_history = []
+    if "program_timeline" not in st.session_state:
+        st.session_state.program_timeline = [
+            {
+                "Timestamp": "2026-06-18 00:00",
+                "Program": "HbA1c Validation Program",
+                "Study": "Validation Package",
+                "Activity": "Package generated",
+                "Details": "Initial completed demonstration validation package.",
+            }
+        ]
+
+
+def platform_settings() -> dict[str, str]:
+    """Return current platform settings."""
+
+    initialize_platform_state()
+    return st.session_state.platform_settings
+
+
+def render_page_header(title: str, subtitle: str = "", kicker: str = APP_STATUS) -> None:
+    """Render a standardized platform page header."""
+
+    st.markdown(
+        f"""
+        <div class="svap-page-header">
+          <div class="svap-page-kicker">{escape(kicker)} · {escape(APP_VERSION)}</div>
+          <div class="svap-page-title">{escape(title)}</div>
+          <div class="svap-page-subtitle">{escape(subtitle)}</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -302,6 +563,369 @@ def render_metric_card(label: str, value: str, status: str | None = None) -> Non
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_module_card(title: str, description: str, status: str | None = None) -> None:
+    """Render a reusable platform navigation card."""
+
+    status_html = f'<div class="svap-card-subtext">{status_badge_html(status)}</div>' if status else ""
+    st.markdown(
+        f"""
+        <div class="svap-card-button">
+          <div class="svap-card-label">{escape(title)}</div>
+          <div class="svap-card-subtext">{escape(description)}</div>
+          {status_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def project_progress(project: dict[str, object]) -> tuple[int, int, float]:
+    """Return completed count, total count, and percent complete for a project."""
+
+    required = list(project.get("Required Studies") or CORE_VALIDATION_MODULES)
+    completed = len(project.get("Completed Studies", []))
+    total = len(required)
+    percent = (completed / total) * 100 if total else 0.0
+    return completed, total, percent
+
+
+def normalize_program(program: dict[str, object]) -> dict[str, object]:
+    """Backfill v1.1 validation program fields for existing session records."""
+
+    program_name = str(program.get("Program Name") or program.get("Project Name") or "Validation Program")
+    assay = str(program.get("Assay / Biomarker") or program.get("Assay") or "")
+    program.setdefault("Program Name", program_name)
+    program.setdefault("Project Name", program_name)
+    program.setdefault("Assay / Biomarker", assay)
+    program.setdefault("Assay", assay)
+    program.setdefault("Program Owner", "")
+    program.setdefault("Status", program.get("Study Status", "Not Started"))
+    program.setdefault("Start Date", str(date.today()))
+    program.setdefault("Target Completion Date", str(date.today()))
+    program.setdefault("Reviewer", "")
+    program.setdefault("Notes", "")
+    program.setdefault("Required Studies", list(CORE_VALIDATION_MODULES))
+    program.setdefault("Completed Studies", [])
+    program.setdefault("Final Package Generated", False)
+    program.setdefault("Last Updated", str(date.today()))
+    return program
+
+
+def program_required_studies(program: dict[str, object]) -> list[str]:
+    """Return assigned studies for a validation program."""
+
+    return list(normalize_program(program).get("Required Studies") or CORE_VALIDATION_MODULES)
+
+
+def normalize_lifecycle_status(status: object) -> str:
+    """Normalize legacy and current lifecycle status labels."""
+
+    value = str(status or "Draft")
+    return {
+        "Analyzed": "Draft",
+        "Pending Review": "Submitted for Review",
+        "Review Pending": "Submitted for Review",
+        "Returned for Revision": "Draft",
+    }.get(value, value if value in STUDY_LIFECYCLE_STATES else "Draft")
+
+
+def program_lifecycle_records(program_name: str) -> list[dict[str, object]]:
+    """Return lifecycle records assigned to a validation program."""
+
+    records = []
+    for record in get_lifecycle_records():
+        record["Status"] = normalize_lifecycle_status(record.get("Status"))
+        if str(record.get("Project")) == program_name:
+            records.append(record)
+    return records
+
+
+def program_study_status(program_name: str, study_type: str) -> str:
+    """Return the latest lifecycle status for a program study."""
+
+    matching = [
+        record for record in program_lifecycle_records(program_name)
+        if record.get("Study Type") == study_type
+    ]
+    return str(matching[-1]["Status"]) if matching else "Draft"
+
+
+def program_metrics(program: dict[str, object]) -> dict[str, object]:
+    """Calculate program-level validation management metrics."""
+
+    program = normalize_program(program)
+    program_name = str(program["Program Name"])
+    required = program_required_studies(program)
+    statuses = {study: program_study_status(program_name, study) for study in required}
+    approved = sum(1 for status in statuses.values() if status in REPORT_ELIGIBLE_STATES)
+    pending = sum(1 for status in statuses.values() if status == "Submitted for Review")
+    under_review = sum(1 for status in statuses.values() if status == "Under Review")
+    completed = sum(1 for status in statuses.values() if status in {"Submitted for Review", "Under Review", "Approved", "Locked", "Archived"})
+    remaining = len(required) - completed
+    percent = (approved / len(required)) * 100 if required else 0.0
+    if bool(program.get("Final Package Generated")):
+        readiness = "Completed"
+    elif len(required) > 0 and approved == len(required):
+        readiness = "Ready for Final Package"
+    elif under_review > 0:
+        readiness = "Ready for Approval"
+    elif pending > 0:
+        readiness = "Review Pending"
+    elif completed > 0:
+        readiness = "In Progress"
+    else:
+        readiness = "Not Started"
+    return {
+        "Required": len(required),
+        "Completed": completed,
+        "Submitted for Review": pending,
+        "Under Review": under_review,
+        "Approved": approved,
+        "Remaining": remaining,
+        "Completion %": percent,
+        "Readiness": readiness,
+        "Statuses": statuses,
+    }
+
+
+def lifecycle_badge_html(status: str) -> str:
+    """Render a lifecycle status badge."""
+
+    normalized = str(status)
+    status_class = {
+        "Draft": "status-borderline",
+        "Submitted for Review": "status-borderline",
+        "Under Review": "status-borderline",
+        "Approved": "status-pass",
+        "Locked": "status-pass",
+        "Archived": "status-pass",
+        "Rejected": "status-fail",
+    }.get(normalized, "status-borderline")
+    return f'<span class="status-badge {status_class}">{escape(normalized)}</span>'
+
+
+def lifecycle_table_to_html(table: pd.DataFrame, status_column: str = "Lifecycle Status") -> str:
+    """Render a table with lifecycle badges."""
+
+    if table.empty:
+        return "<p>No records available.</p>"
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in table.columns)
+    body_rows = []
+    for _, row in table.iterrows():
+        cells = []
+        for column in table.columns:
+            value = row[column]
+            if column == status_column:
+                cells.append(f"<td>{lifecycle_badge_html(str(value))}</td>")
+            else:
+                cells.append(f"<td>{escape(str(value))}</td>")
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+    return f'<div class="svap-status-table"><table><thead><tr>{headers}</tr></thead><tbody>{"".join(body_rows)}</tbody></table></div>'
+
+
+def get_lifecycle_records() -> list[dict[str, object]]:
+    """Return lifecycle study records from session state."""
+
+    initialize_platform_state()
+    return st.session_state.study_lifecycle_records
+
+
+def lifecycle_counts(project_name: str | None = None) -> dict[str, int]:
+    """Return lifecycle status counts."""
+
+    records = get_lifecycle_records()
+    if project_name:
+        records = [record for record in records if record.get("Project") == project_name]
+    return {
+        status: sum(1 for record in records if normalize_lifecycle_status(record.get("Status")) == status)
+        for status in STUDY_LIFECYCLE_STATES
+    }
+
+
+def eligible_study_types(program_name: str | None = None) -> list[str]:
+    """Return study types eligible for consolidated final reports."""
+
+    records = get_lifecycle_records()
+    if program_name is not None:
+        records = [record for record in records if str(record.get("Project")) == program_name]
+    return sorted(
+        {
+            str(record["Study Type"])
+            for record in records
+            if normalize_lifecycle_status(record.get("Status")) in REPORT_ELIGIBLE_STATES
+        }
+    )
+
+
+def canonical_study_type(study_type: str) -> str:
+    """Normalize UI study names to report-engine study names."""
+
+    return {
+        "Precision Study": "Precision",
+        "Accuracy Study": "Accuracy",
+        "Linearity Study": "Linearity",
+        "Stability Study": "Stability",
+    }.get(study_type, study_type)
+
+
+def record_approval_history(
+    study: dict[str, object],
+    previous_status: str,
+    new_status: str,
+    decision: str,
+    reviewer: str,
+    comment: str,
+) -> None:
+    """Append a review event to the approval history."""
+
+    st.session_state.approval_history.append(
+        {
+            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Study": study.get("Study Name", ""),
+            "Reviewer": reviewer,
+            "Previous Status": previous_status,
+            "New Status": new_status,
+            "Decision": decision,
+            "Comment": comment,
+        }
+    )
+
+
+def record_program_activity(program: str, study: str, activity: str, details: str = "") -> None:
+    """Append a chronological program activity event."""
+
+    initialize_platform_state()
+    st.session_state.program_timeline.append(
+        {
+            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Program": program,
+            "Study": study,
+            "Activity": activity,
+            "Details": details,
+        }
+    )
+
+
+def submit_study_for_review(study_type: str, metadata: dict[str, object]) -> None:
+    """Create or update a study lifecycle record as pending review."""
+
+    initialize_platform_state()
+    canonical_type = canonical_study_type(study_type)
+    study_name = str(metadata.get("Study Name") or f"{metadata.get('Assay / Biomarker', 'Assay')} {study_type}")
+    study_id = f"{study_name.lower().replace(' ', '-')}-{canonical_type.lower().replace(' ', '-')}"
+    existing = next(
+        (record for record in st.session_state.study_lifecycle_records if record.get("Study ID") == study_id),
+        None,
+    )
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if existing and existing.get("Status") == "Locked":
+        version = int(existing.get("Version", 1)) + 1
+        study_id = f"{study_id}-v{version}"
+        existing = None
+    elif existing:
+        version = int(existing.get("Version", 1))
+    else:
+        version = 1
+
+    record = {
+        "Study ID": study_id,
+        "Project": str(metadata.get("Validation Project Name") or "Unassigned Validation Project"),
+        "Study Name": study_name,
+        "Study Type": canonical_type,
+        "Assay": str(metadata.get("Assay / Biomarker") or metadata.get("Assay") or ""),
+        "Analyst": str(metadata.get("Analyst Name") or metadata.get("Analyst") or ""),
+        "Completion Date": date.today().isoformat(),
+        "Status": "Submitted for Review",
+        "Version": version,
+        "Reviewer Comments": str(metadata.get("Reviewer Comments") or ""),
+        "Submitted Date": date.today().isoformat(),
+        "Last Updated": timestamp,
+        "Locked": False,
+    }
+    if existing:
+        existing.update(record)
+    else:
+        st.session_state.study_lifecycle_records.append(record)
+        record_program_activity(
+            str(record["Project"]),
+            str(record["Study Name"]),
+            "Study created",
+            f"{record['Study Type']} lifecycle record created.",
+        )
+    record_program_activity(
+        str(record["Project"]),
+        str(record["Study Name"]),
+        "Submitted for review",
+        f"{record['Study Type']} moved to Submitted for Review.",
+    )
+
+
+def record_study_analyzed(study_type: str, metadata: dict[str, object]) -> None:
+    """Record a completed analysis before reviewer submission."""
+
+    initialize_platform_state()
+    canonical_type = canonical_study_type(study_type)
+    study_name = str(metadata.get("Study Name") or f"{metadata.get('Assay / Biomarker', 'Assay')} {study_type}")
+    study_id = f"{study_name.lower().replace(' ', '-')}-{canonical_type.lower().replace(' ', '-')}"
+    existing = next(
+        (record for record in st.session_state.study_lifecycle_records if record.get("Study ID") == study_id),
+        None,
+    )
+    if existing and normalize_lifecycle_status(existing.get("Status")) in {"Submitted for Review", "Under Review", "Approved", "Locked", "Archived"}:
+        return
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    record = {
+        "Study ID": study_id,
+        "Project": str(metadata.get("Validation Project Name") or "Unassigned Validation Project"),
+        "Study Name": study_name,
+        "Study Type": canonical_type,
+        "Assay": str(metadata.get("Assay / Biomarker") or metadata.get("Assay") or ""),
+        "Analyst": str(metadata.get("Analyst Name") or metadata.get("Analyst") or ""),
+        "Completion Date": date.today().isoformat(),
+        "Status": "Draft",
+        "Version": int(existing.get("Version", 1)) if existing else 1,
+        "Reviewer Comments": str(existing.get("Reviewer Comments", "")) if existing else "",
+        "Submitted Date": str(existing.get("Submitted Date", "")) if existing else "",
+        "Last Updated": timestamp,
+        "Locked": False,
+    }
+    if existing:
+        existing.update(record)
+    else:
+        st.session_state.study_lifecycle_records.append(record)
+    record_program_activity(
+        str(record["Project"]),
+        str(record["Study Name"]),
+        "Analysis completed",
+        f"{record['Study Type']} analysis completed.",
+    )
+
+
+def render_submit_for_review(study_type: str, metadata: dict[str, object]) -> None:
+    """Render the post-analysis submit-for-review action."""
+
+    record_study_analyzed(study_type, metadata)
+    st.subheader("Validation Lifecycle")
+    st.caption("Completed analyses can be submitted to the Validation Review Center.")
+    canonical_type = canonical_study_type(study_type)
+    current_record = next(
+        (
+            record for record in get_lifecycle_records()
+            if record.get("Study Name") == metadata.get("Study Name")
+            and record.get("Study Type") == canonical_type
+        ),
+        None,
+    )
+    current_status = normalize_lifecycle_status(current_record.get("Status")) if current_record else "Draft"
+    st.markdown(f"Current lifecycle status: {lifecycle_badge_html(current_status)}", unsafe_allow_html=True)
+    if current_status in {"Approved", "Locked", "Archived"}:
+        st.info("This study is read-only. Create a new study version to modify or resubmit it.")
+        return
+    if st.button("Submit for Review", key=f"submit_review_{study_type}_{metadata.get('Study Name', '')}"):
+        submit_study_for_review(study_type, metadata)
+        st.success("Study submitted for review. Status: Submitted for Review.")
 
 
 def render_linearity_executive_summary(
@@ -516,40 +1140,684 @@ def detect_sample_id_column(data: pd.DataFrame) -> str | None:
 
 
 def render_dashboard() -> None:
-    """Render dashboard cards for current and planned validation modules."""
+    """Render the v1.0 unified platform dashboard."""
 
-    st.subheader("Validation Dashboard")
-    for row_start in range(0, len(DASHBOARD_MODULES), 4):
-        columns = st.columns(4)
-        for column, (title, description) in zip(
-            columns, DASHBOARD_MODULES[row_start : row_start + 4]
-        ):
+    initialize_platform_state()
+    render_page_header(
+        "Unified Validation Dashboard",
+        "A centralized workspace for analytical validation studies, specimen equivalency workflows, and validation-ready reporting.",
+    )
+    projects = st.session_state.validation_projects
+    completed_studies = sum(len(project.get("Completed Studies", [])) for project in projects)
+    reports_generated = len(st.session_state.reports_library)
+    active_projects = sum(1 for project in projects if project.get("Study Status") != "Validation Complete")
+    counts = lifecycle_counts()
+    ready_for_review = counts["Submitted for Review"]
+    ready_for_approval = counts["Under Review"]
+    ready_for_package = sum(
+        1 for project in projects
+        if program_metrics(project)["Readiness"] == "Ready for Final Package"
+    )
+
+    overview = st.columns(5)
+    with overview[0]:
+        render_metric_card("Platform Version", APP_VERSION)
+    with overview[1]:
+        render_metric_card("Validation Modules", str(len(PLATFORM_CAPABILITIES)))
+    with overview[2]:
+        render_metric_card("Studies Completed", str(completed_studies))
+    with overview[3]:
+        render_metric_card("Reports Generated", str(reports_generated))
+    with overview[4]:
+        render_metric_card("Active Projects", str(active_projects))
+
+    st.subheader("Lifecycle Metrics")
+    lifecycle_cols = st.columns(4)
+    with lifecycle_cols[0]:
+        render_metric_card("Draft Studies", str(counts["Draft"]))
+    with lifecycle_cols[1]:
+        render_metric_card("Studies Under Review", str(counts["Under Review"]))
+    with lifecycle_cols[2]:
+        render_metric_card("Approved Studies", str(counts["Approved"]))
+    with lifecycle_cols[3]:
+        render_metric_card("Locked Studies", str(counts["Locked"]))
+
+    st.subheader("Validation Readiness")
+    readiness_cols = st.columns(3)
+    with readiness_cols[0]:
+        render_metric_card("Ready for Review", str(ready_for_review))
+    with readiness_cols[1]:
+        render_metric_card("Ready for Approval", str(ready_for_approval))
+    with readiness_cols[2]:
+        render_metric_card("Ready for Package Generation", str(ready_for_package))
+
+    st.subheader("Validation Coverage")
+    for row_start in range(0, len(PLATFORM_CAPABILITIES), 3):
+        columns = st.columns(3)
+        for column, capability in zip(columns, PLATFORM_CAPABILITIES[row_start : row_start + 3]):
             with column:
                 st.markdown(
                     f"""
-                    <div style="border:1px solid #d9e2ec; border-radius:8px; padding:14px; min-height:132px;">
-                      <h3 style="margin-top:0; font-size:1.05rem;">{title}</h3>
-                      <p style="font-size:0.9rem; color:#52606d;">{description}</p>
+                    <div class="svap-card">
+                      <div class="svap-card-value"><span class="svap-check">✓</span> {escape(capability)}</div>
+                      <div class="svap-card-subtext">Available in {escape(APP_VERSION)}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
+    st.subheader("Quick Actions")
+    action_cols = st.columns(4)
+    quick_actions = [
+        ("Create Validation Project", "Projects"),
+        ("Start New Study", "Validation Workspace"),
+        ("Open Review Center", "Validation Review Center"),
+        ("Generate New Report", "Reports Library"),
+    ]
+    for column, (label, target_page) in zip(action_cols, quick_actions):
+        with column:
+            if st.button(label, use_container_width=True):
+                st.session_state.pending_page = target_page
+                st.rerun()
 
-def render_validation_reports_workspace() -> None:
-    """Render the consolidated Validation Reports Engine workflow."""
+    st.subheader("Core Validation Modules")
+    for row_start in range(0, len(DASHBOARD_MODULES), 3):
+        columns = st.columns(3)
+        for column, (title, description) in zip(columns, DASHBOARD_MODULES[row_start : row_start + 3]):
+            with column:
+                render_module_card(title, description, "AVAILABLE")
 
-    st.subheader("Validation Reports Engine")
+
+def render_projects_workspace() -> None:
+    """Render validation program management workspace."""
+
+    initialize_platform_state()
+    render_page_header(
+        "Validation Programs",
+        "Manage complete assay validation programs, assigned studies, review readiness, and final package status.",
+    )
+    settings = platform_settings()
+
+    with st.expander("Create Validation Program", expanded=False):
+        row = st.columns(4)
+        with row[0]:
+            program_name = st.text_input("Program Name", value="New Assay Validation Program")
+        with row[1]:
+            assay = st.text_input("Assay / Biomarker", value="Custom Assay")
+        with row[2]:
+            owner = st.text_input("Program Owner", value=settings.get("Analyst Name", ""))
+        with row[3]:
+            reviewer = st.text_input("Reviewer", value=settings.get("Reviewer Name", ""))
+        date_row = st.columns(3)
+        with date_row[0]:
+            start_date = st.date_input("Start Date", value=date.today(), key="new_program_start")
+        with date_row[1]:
+            target_date = st.date_input("Target Completion Date", value=date.today(), key="new_program_target")
+        with date_row[2]:
+            status = st.selectbox("Status", ["Not Started", "In Progress", "Review Pending", "Ready for Final Package", "Completed"])
+        required_studies = st.multiselect(
+            "Assigned Studies",
+            CORE_VALIDATION_MODULES,
+            default=list(CORE_VALIDATION_MODULES),
+        )
+        notes = st.text_area("Notes", height=80, key="new_program_notes")
+        if st.button("Add Validation Program", type="primary"):
+            st.session_state.validation_projects.append(
+                {
+                    "Project Name": program_name,
+                    "Program Name": program_name,
+                    "Assay": assay,
+                    "Assay / Biomarker": assay,
+                    "Program Owner": owner,
+                    "Status": status,
+                    "Study Status": status,
+                    "Start Date": start_date.isoformat(),
+                    "Target Completion Date": target_date.isoformat(),
+                    "Reviewer": reviewer,
+                    "Notes": notes,
+                    "Required Studies": required_studies,
+                    "Completed Studies": [],
+                    "Last Updated": date.today().isoformat(),
+                    "Overall Status": status,
+                    "Final Package Generated": False,
+                }
+            )
+            record_program_activity(program_name, "Program", "Study created", "Validation program created.")
+            st.success(f"Created validation program: {program_name}")
+
+    program_rows = []
+    for project in st.session_state.validation_projects:
+        project = normalize_program(project)
+        metrics = program_metrics(project)
+        program_rows.append(
+            {
+                "Program Name": project["Program Name"],
+                "Assay / Biomarker": project["Assay / Biomarker"],
+                "Program Owner": project["Program Owner"],
+                "Status": metrics["Readiness"],
+                "Start Date": project["Start Date"],
+                "Target Completion Date": project["Target Completion Date"],
+                "Reviewer": project["Reviewer"],
+                "Required Studies": metrics["Required"],
+                "Approved Studies": metrics["Approved"],
+                "Completion %": f"{metrics['Completion %']:.0f}%",
+                "Last Updated": project["Last Updated"],
+            }
+        )
+    st.subheader("Program Dashboard")
+    st.dataframe(pd.DataFrame(program_rows), width="stretch")
+
+    project_names = [str(normalize_program(project)["Program Name"]) for project in st.session_state.validation_projects]
+    selected_project_name = st.selectbox("Open Validation Program", project_names)
+    project = next(
+        normalize_program(item)
+        for item in st.session_state.validation_projects
+        if normalize_program(item)["Program Name"] == selected_project_name
+    )
+    metrics = program_metrics(project)
+
+    st.subheader(selected_project_name)
+    detail_cols = st.columns(5)
+    with detail_cols[0]:
+        render_metric_card("Assay", str(project["Assay / Biomarker"]))
+    with detail_cols[1]:
+        render_metric_card("Studies Required", str(metrics["Required"]))
+    with detail_cols[2]:
+        render_metric_card("Studies Approved", str(metrics["Approved"]))
+    with detail_cols[3]:
+        render_metric_card("Completion", f"{metrics['Completion %']:.0f}%")
+    with detail_cols[4]:
+        readiness = str(metrics["Readiness"])
+        render_metric_card("Readiness", readiness, status="PASS" if readiness in {"Ready for Final Package", "Completed"} else None)
+
+    st.progress(
+        float(metrics["Completion %"]) / 100,
+        text=f"Program completion: {metrics['Approved']} approved, {metrics['Remaining']} remaining",
+    )
+    dashboard_cols = st.columns(4)
+    with dashboard_cols[0]:
+        render_metric_card("Completed Studies", str(metrics["Completed"]))
+    with dashboard_cols[1]:
+        render_metric_card("Submitted for Review", str(metrics["Submitted for Review"]))
+    with dashboard_cols[2]:
+        render_metric_card("Approved Studies", str(metrics["Approved"]))
+    with dashboard_cols[3]:
+        render_metric_card("Remaining Studies", str(metrics["Remaining"]))
+
+    st.markdown("### Program Information")
+    info_rows = [
+        {"Field": "Program Name", "Value": project["Program Name"]},
+        {"Field": "Assay / Biomarker", "Value": project["Assay / Biomarker"]},
+        {"Field": "Program Owner", "Value": project["Program Owner"]},
+        {"Field": "Reviewer", "Value": project["Reviewer"]},
+        {"Field": "Start Date", "Value": project["Start Date"]},
+        {"Field": "Target Completion Date", "Value": project["Target Completion Date"]},
+        {"Field": "Notes", "Value": project["Notes"]},
+    ]
+    st.dataframe(pd.DataFrame(info_rows), width="stretch")
+
+    st.markdown("### Study Assignment")
+    assigned = st.multiselect(
+        "Assigned Studies for Program",
+        CORE_VALIDATION_MODULES,
+        default=program_required_studies(project),
+        key=f"assigned_studies_{selected_project_name}",
+    )
+    if st.button("Update Study Assignment"):
+        project["Required Studies"] = assigned
+        project["Last Updated"] = date.today().isoformat()
+        record_program_activity(selected_project_name, "Program", "Study assignment updated", ", ".join(assigned))
+        st.success("Study assignment updated.")
+
+    st.markdown("### Validation Coverage Matrix")
+    matrix_rows = []
+    for module in program_required_studies(project):
+        status = program_study_status(selected_project_name, module)
+        included = status in REPORT_ELIGIBLE_STATES
+        matrix_rows.append(
+            {
+                "Study Type": module,
+                "Status": status,
+                "Approval Status": "Approved" if included else "Not Approved",
+                "Included in Final Package": "Yes" if included else "No",
+            }
+        )
+    st.markdown(lifecycle_table_to_html(pd.DataFrame(matrix_rows), status_column="Status"), unsafe_allow_html=True)
+
+    st.markdown("### Program Timeline")
+    timeline = pd.DataFrame(
+        [
+            event for event in st.session_state.program_timeline
+            if event.get("Program") == selected_project_name
+        ]
+    )
+    if timeline.empty:
+        st.info("No program activity has been recorded yet.")
+    else:
+        st.dataframe(timeline.sort_values("Timestamp", ascending=False), width="stretch")
+
+
+def render_progress_tracker() -> None:
+    """Render platform-wide validation progress tracking."""
+
+    initialize_platform_state()
+    render_page_header(
+        "Validation Progress Tracker",
+        "Track validation readiness across active assay programs.",
+    )
+    rows = []
+    for project in st.session_state.validation_projects:
+        completed, total, percent = project_progress(project)
+        status = "Ready for Final Review" if completed == total else "In Progress" if completed else "Not Started"
+        rows.append(
+            {
+                "Validation Project": project["Project Name"],
+                "Completed Studies": completed,
+                "Remaining Studies": total - completed,
+                "Validation Progress %": f"{percent:.0f}%",
+                "Validation Readiness Status": status,
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), width="stretch")
+
+    for project in st.session_state.validation_projects:
+        completed, total, percent = project_progress(project)
+        st.progress(percent / 100, text=f"{project['Project Name']}: {completed} / {total} studies")
+
+
+def render_validation_review_center() -> None:
+    """Render auditable study review and approval workflow."""
+
+    initialize_platform_state()
+    render_page_header(
+        "Validation Review Center",
+        "Review submitted studies, document reviewer decisions, and maintain validation governance traceability.",
+    )
+    settings = platform_settings()
     st.caption(
-        "Generate a consolidated validation-ready package from completed validation modules."
+        f"{settings.get('Laboratory Name') or 'Laboratory not specified'}"
+        f" · Reviewer: {settings.get('Reviewer Name') or 'Not specified'}"
+    )
+    pending_records = [
+        record for record in get_lifecycle_records()
+        if normalize_lifecycle_status(record.get("Status")) in {"Submitted for Review", "Under Review"}
+    ]
+    st.subheader("Studies Awaiting Review")
+    if not pending_records:
+        st.info("No studies are currently pending review.")
+    else:
+        pending_table = pd.DataFrame(
+            [
+                {
+                    "Study Name": record["Study Name"],
+                    "Program": record.get("Project", ""),
+                    "Study Type": record["Study Type"],
+                    "Assay": record["Assay"],
+                    "Analyst": record["Analyst"],
+                    "Submission Date": record.get("Submitted Date") or record.get("Completion Date", ""),
+                    "Current Status": normalize_lifecycle_status(record["Status"]),
+                    "Version": record["Version"],
+                }
+                for record in pending_records
+            ]
+        )
+        st.markdown(
+            lifecycle_table_to_html(pending_table, status_column="Current Status"),
+            unsafe_allow_html=True,
+        )
+
+        selected_study_id = st.selectbox(
+            "Select study for review",
+            [str(record["Study ID"]) for record in pending_records],
+            format_func=lambda value: next(
+                str(record["Study Name"]) for record in pending_records if record["Study ID"] == value
+            ),
+        )
+        study = next(record for record in pending_records if record["Study ID"] == selected_study_id)
+        previous_status = normalize_lifecycle_status(study.get("Status"))
+        reviewer = st.text_input("Reviewer", value=settings.get("Reviewer Name", ""))
+        comments = st.text_area("Reviewer Comments", value=str(study.get("Reviewer Comments", "")), height=100)
+        if previous_status == "Submitted for Review":
+            if st.button("Begin Review", use_container_width=True):
+                study["Status"] = "Under Review"
+                study["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                record_approval_history(study, previous_status, "Under Review", "Under Review", reviewer, comments)
+                record_program_activity(
+                    str(study.get("Project", "")),
+                    str(study.get("Study Name", "")),
+                    "Under review",
+                    comments,
+                )
+                st.rerun()
+        action_cols = st.columns(3)
+        with action_cols[0]:
+            if st.button("Approve Study", type="primary", use_container_width=True):
+                previous_status = normalize_lifecycle_status(study.get("Status"))
+                study["Status"] = "Approved"
+                study["Locked"] = False
+                study["Reviewer Comments"] = comments
+                study["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                record_approval_history(study, previous_status, "Approved", "Approved", reviewer, comments)
+                record_program_activity(
+                    str(study.get("Project", "")),
+                    str(study.get("Study Name", "")),
+                    "Approved",
+                    comments,
+                )
+                st.success("Study approved.")
+                st.rerun()
+        with action_cols[1]:
+            if st.button("Reject Study", use_container_width=True):
+                if not comments.strip():
+                    st.error("Reviewer comments are required when rejecting a study.")
+                    st.stop()
+                previous_status = normalize_lifecycle_status(study.get("Status"))
+                study["Status"] = "Draft"
+                study["Locked"] = False
+                study["Reviewer Comments"] = comments
+                study["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                record_approval_history(study, previous_status, "Rejected", "Rejected", reviewer, comments)
+                record_program_activity(
+                    str(study.get("Project", "")),
+                    str(study.get("Study Name", "")),
+                    "Rejected",
+                    comments,
+                )
+                st.warning("Study rejected and returned to Draft.")
+                st.rerun()
+        with action_cols[2]:
+            if st.button("Return for Revision", use_container_width=True):
+                previous_status = normalize_lifecycle_status(study.get("Status"))
+                study["Status"] = "Draft"
+                study["Locked"] = False
+                study["Reviewer Comments"] = comments
+                study["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                record_approval_history(study, previous_status, "Draft", "Returned for Revision", reviewer, comments)
+                record_program_activity(
+                    str(study.get("Project", "")),
+                    str(study.get("Study Name", "")),
+                    "Returned for revision",
+                    comments,
+                )
+                st.info("Study returned for revision.")
+                st.rerun()
+
+    st.subheader("Approval History")
+    history = pd.DataFrame(st.session_state.approval_history)
+    if history.empty:
+        st.info("No approval history has been recorded yet.")
+    else:
+        st.dataframe(history.sort_values("Timestamp", ascending=False), width="stretch")
+
+
+def render_reports_library() -> None:
+    """Render the report library and report search tools."""
+
+    initialize_platform_state()
+    render_page_header(
+        "Reports Library",
+        "Generate validation packages, view existing reports, and download PDF or HTML outputs.",
+    )
+    generate_tab, library_tab = st.tabs(["Generate New Report", "View Existing Reports"])
+    with generate_tab:
+        render_validation_reports_workspace(embedded=True)
+
+    with library_tab:
+        render_existing_reports_library()
+
+
+def render_existing_reports_library() -> None:
+    """Render searchable existing report records."""
+
+    reports = pd.DataFrame(st.session_state.reports_library)
+    if reports.empty:
+        st.info("No reports are currently registered in the report library.")
+        return
+
+    filters = st.columns(4)
+    with filters[0]:
+        search = st.text_input("Search reports")
+    with filters[1]:
+        assay_filter = st.selectbox("Filter by assay/project", ["All"] + sorted(reports["Project"].unique().tolist()))
+    with filters[2]:
+        study_filter = st.selectbox("Filter by study type", ["All"] + sorted(reports["Study Type"].unique().tolist()))
+    with filters[3]:
+        analyst_filter = st.selectbox("Filter by analyst", ["All"] + sorted(reports["Analyst"].fillna("").unique().tolist()))
+
+    filtered = reports.copy()
+    if search:
+        mask = filtered.astype(str).apply(lambda col: col.str.contains(search, case=False, na=False)).any(axis=1)
+        filtered = filtered[mask]
+    if assay_filter != "All":
+        filtered = filtered[filtered["Project"] == assay_filter]
+    if study_filter != "All":
+        filtered = filtered[filtered["Study Type"] == study_filter]
+    if analyst_filter != "All":
+        filtered = filtered[filtered["Analyst"] == analyst_filter]
+
+    st.dataframe(filtered, width="stretch")
+    selected_report = st.selectbox("Report Actions", filtered["Report Name"].tolist() if not filtered.empty else ["No reports available"])
+    selected_report_row = (
+        filtered[filtered["Report Name"] == selected_report].iloc[0].to_dict()
+        if not filtered.empty
+        else {}
+    )
+    action_cols = st.columns(4)
+    disabled = filtered.empty
+    settings = platform_settings()
+    project_metadata = {
+        "Validation Project Name": str(selected_report_row.get("Project") or selected_report),
+        "Analyst": settings.get("Analyst Name", ""),
+        "Study Date": date.today().isoformat(),
+        "Instrument": "",
+        "Assay / Biomarker": "HbA1c",
+        "Specimen Type": "Whole Blood",
+        "Protocol Number": "",
+        "Reviewer": settings.get("Reviewer Name", ""),
+        "Laboratory Name": settings.get("Laboratory Name", ""),
+        "Report Version": APP_VERSION,
+        "Department": settings.get("Department", ""),
+        "Address": settings.get("Address", ""),
+        "Report Logo": settings.get("Report Logo", ""),
+        "Organization Branding": settings.get("Organization Branding", ""),
+        "Report Footer": settings.get("Report Footer", ""),
+        "Package Generated By": settings.get("Analyst Name", ""),
+        "Package Generation Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Approval Status": "Generated from Approved/Locked studies",
+    }
+    eligible = eligible_study_types(str(selected_report_row.get("Project") or ""))
+    package = generate_validation_package(
+        selected_studies=eligible,
+        root_dir=ROOT_DIR,
+        project_metadata=project_metadata,
+    ) if not disabled and eligible else None
+    if package is not None:
+        package_program = str(selected_report_row.get("Project") or "")
+        for study in package.studies:
+            study.status = program_study_status(package_program, study.study_type)
+    with action_cols[0]:
+        st.button("Open", disabled=disabled, use_container_width=True)
+    with action_cols[1]:
+        st.download_button(
+            "Download PDF",
+            data=build_full_pdf(package) if package else b"",
+            file_name="validation_report.pdf",
+            mime="application/pdf",
+            disabled=disabled or package is None,
+            use_container_width=True,
+        )
+    with action_cols[2]:
+        st.download_button(
+            "Download HTML",
+            data=export_full_html(package, SUPPORTED_STUDIES).encode("utf-8") if package else b"",
+            file_name="validation_report.html",
+            mime="text/html",
+            disabled=disabled or package is None,
+            use_container_width=True,
+        )
+    with action_cols[3]:
+        if st.button("Delete", disabled=disabled, use_container_width=True):
+            st.session_state.reports_library = [
+                report for report in st.session_state.reports_library if report["Report Name"] != selected_report
+            ]
+            st.rerun()
+
+
+def render_sample_dataset_library() -> None:
+    """Render the reusable sample dataset repository."""
+
+    render_page_header(
+        "Sample Dataset Library",
+        "Browse sample datasets and load them into validation modules for demonstration workflows.",
+    )
+    rows = []
+    for item in SAMPLE_DATASETS:
+        path = Path(item["File"])
+        rows.append(
+            {
+                "Study Type": item["Study Type"],
+                "Dataset": item["Dataset"],
+                "File": path.name,
+                "Rows": len(pd.read_csv(path)) if path.exists() else 0,
+                "Description": item["Description"],
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), width="stretch")
+
+    selected_dataset = st.selectbox("Dataset", [item["Dataset"] for item in SAMPLE_DATASETS])
+    item = next(dataset for dataset in SAMPLE_DATASETS if dataset["Dataset"] == selected_dataset)
+    data = pd.read_csv(item["File"])
+    st.subheader("Dataset Preview")
+    st.dataframe(data.head(25), width="stretch")
+    cols = st.columns(2)
+    with cols[0]:
+        st.download_button(
+            "Download sample dataset CSV",
+            data=data.to_csv(index=False).encode("utf-8"),
+            file_name=Path(item["File"]).name,
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with cols[1]:
+        if st.button("Load Dataset in Study Workspace", use_container_width=True):
+            st.session_state.selected_sample_dataset = item["Dataset"]
+            st.session_state.pending_page = "Validation Workspace"
+            st.rerun()
+
+
+def render_platform_settings() -> None:
+    """Render centralized platform settings."""
+
+    initialize_platform_state()
+    render_page_header(
+        "Platform Settings",
+        "Configure laboratory, user, reporting, and export defaults used throughout validation reports.",
+    )
+    settings = platform_settings().copy()
+
+    st.subheader("Laboratory Information")
+    lab_cols = st.columns(3)
+    with lab_cols[0]:
+        settings["Laboratory Name"] = st.text_input("Laboratory Name", value=settings.get("Laboratory Name", ""))
+    with lab_cols[1]:
+        settings["Department"] = st.text_input("Department", value=settings.get("Department", ""))
+    with lab_cols[2]:
+        settings["Address"] = st.text_input("Address", value=settings.get("Address", ""))
+
+    st.subheader("User Information")
+    user_cols = st.columns(2)
+    with user_cols[0]:
+        settings["Analyst Name"] = st.text_input("Analyst Name", value=settings.get("Analyst Name", ""))
+    with user_cols[1]:
+        settings["Reviewer Name"] = st.text_input("Reviewer Name", value=settings.get("Reviewer Name", ""))
+
+    st.subheader("Reporting Preferences")
+    report_cols = st.columns(3)
+    with report_cols[0]:
+        settings["Report Logo"] = st.text_input("Report Logo", value=settings.get("Report Logo", ""))
+    with report_cols[1]:
+        settings["Report Footer"] = st.text_input("Report Footer", value=settings.get("Report Footer", ""))
+    with report_cols[2]:
+        settings["Organization Branding"] = st.text_input("Organization Branding", value=settings.get("Organization Branding", ""))
+
+    st.subheader("Export Preferences")
+    export_cols = st.columns(2)
+    with export_cols[0]:
+        settings["PDF Settings"] = st.text_input("PDF Settings", value=settings.get("PDF Settings", ""))
+    with export_cols[1]:
+        settings["Default Report Format"] = st.selectbox(
+            "Default Report Format",
+            ["PDF and HTML", "PDF", "HTML"],
+            index=["PDF and HTML", "PDF", "HTML"].index(settings.get("Default Report Format", "PDF and HTML")),
+        )
+
+    if st.button("Save Platform Settings", type="primary"):
+        st.session_state.platform_settings = settings
+        st.success("Platform settings saved for this session.")
+
+
+def render_about_page() -> None:
+    """Render professional About page."""
+
+    render_page_header(
+        "About",
+        "Scientific Validation Analytics Platform for analytical validation studies, specimen equivalency assessments, and validation reporting.",
+    )
+    cols = st.columns(3)
+    with cols[0]:
+        render_metric_card("Version", APP_VERSION)
+    with cols[1]:
+        render_metric_card("Status", APP_STATUS)
+    with cols[2]:
+        render_metric_card("Release Name", RELEASE_NAME)
+
+    st.subheader("Purpose")
+    st.write(
+        "A software platform for analytical validation studies, specimen equivalency assessments, and validation reporting."
     )
 
+    st.subheader("Technology Stack")
+    st.write(", ".join(["Python", "Pandas", "NumPy", "SciPy", "Plotly", "Streamlit"]))
+
+    st.subheader("Platform Capabilities")
+    capability_rows = [
+        {"Capability": "Validation Modules Available", "Value": ", ".join(CORE_VALIDATION_MODULES)},
+        {"Capability": "Report Formats Supported", "Value": "HTML, PDF, CSV"},
+        {"Capability": "Statistical Methods Implemented", "Value": "Regression, correlation, bias, recovery, precision, linearity, stability, LoB, LoD, LoQ, Bland-Altman agreement"},
+    ]
+    st.dataframe(pd.DataFrame(capability_rows), width="stretch")
+
+    st.subheader("Author")
+    st.write("Built by: Ankita Puri, PhD")
+    st.caption("Scientific Software Portfolio Project")
+
+
+def render_validation_reports_workspace(embedded: bool = False) -> None:
+    """Render the consolidated Validation Reports Engine workflow."""
+
+    settings = platform_settings()
+    if not embedded:
+        render_page_header(
+            "Validation Reports Engine",
+            "Generate consolidated validation-ready packages from completed validation modules.",
+        )
+    else:
+        st.subheader("Generate New Report")
+        st.caption("Create a consolidated validation-ready package from completed validation modules.")
+
     st.markdown("### Validation Report Information")
+    program_names = [str(normalize_program(program)["Program Name"]) for program in st.session_state.validation_projects]
+    selected_program = st.selectbox("Validation Program", program_names)
+    program = next(
+        normalize_program(item)
+        for item in st.session_state.validation_projects
+        if normalize_program(item)["Program Name"] == selected_program
+    )
     row_1 = st.columns(3)
     with row_1[0]:
-        project_name = st.text_input("Validation Project Name", value="HbA1c Analytical Validation Package")
+        project_name = st.text_input("Validation Project Name", value=selected_program)
     with row_1[1]:
-        analyst = st.text_input("Analyst")
+        analyst = st.text_input("Analyst", value=program.get("Program Owner") or settings.get("Analyst Name", ""))
     with row_1[2]:
         study_date = st.date_input("Study Date", value=date.today())
 
@@ -557,7 +1825,7 @@ def render_validation_reports_workspace() -> None:
     with row_2[0]:
         instrument = st.text_input("Instrument")
     with row_2[1]:
-        assay = st.text_input("Assay / Biomarker", value="HbA1c")
+        assay = st.text_input("Assay / Biomarker", value=str(program.get("Assay / Biomarker") or "HbA1c"))
     with row_2[2]:
         specimen_type = st.text_input("Specimen Type", value="Whole Blood")
 
@@ -565,13 +1833,13 @@ def render_validation_reports_workspace() -> None:
     with row_3[0]:
         protocol_number = st.text_input("Protocol Number")
     with row_3[1]:
-        reviewer = st.text_input("Reviewer")
+        reviewer = st.text_input("Reviewer", value=program.get("Reviewer") or settings.get("Reviewer Name", ""))
     with row_3[2]:
-        laboratory_name = st.text_input("Laboratory Name")
+        laboratory_name = st.text_input("Laboratory Name", value=settings.get("Laboratory Name", ""))
 
     row_4 = st.columns(3)
     with row_4[0]:
-        report_version = st.text_input("Report Version", value="v0.7.1")
+        report_version = st.text_input("Report Version", value=APP_VERSION)
 
     project_metadata = {
         "Validation Project Name": project_name,
@@ -584,26 +1852,71 @@ def render_validation_reports_workspace() -> None:
         "Reviewer": reviewer,
         "Laboratory Name": laboratory_name,
         "Report Version": report_version,
+        "Department": settings.get("Department", ""),
+        "Address": settings.get("Address", ""),
+        "Report Logo": settings.get("Report Logo", ""),
+        "Report Footer": settings.get("Report Footer", ""),
+        "Organization Branding": settings.get("Organization Branding", ""),
+        "Package Generated By": analyst,
+        "Package Generation Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Approval Status": "Generated from Approved/Locked studies",
     }
 
-    st.markdown("### Select Completed Studies")
+    eligible = eligible_study_types(selected_program)
+    if not eligible:
+        st.warning("No approved or locked studies are currently eligible for final validation packages.")
+        return
+    st.markdown("### Select Approved or Locked Studies")
+    st.caption("Only studies with Approved or Locked lifecycle status can be included in final validation packages.")
     selected_studies: list[str] = []
     cols = st.columns(3)
     for index, study_name in enumerate(SUPPORTED_STUDIES):
+        if study_name not in eligible:
+            continue
         with cols[index % 3]:
             if st.checkbox(study_name, value=True):
                 selected_studies.append(study_name)
 
     if st.button("Generate Consolidated Validation Package", type="primary"):
+        if not selected_studies:
+            st.warning("Select at least one approved or locked study.")
+            st.stop()
         try:
             package = generate_validation_package(
                 selected_studies=selected_studies,
                 root_dir=ROOT_DIR,
                 project_metadata=project_metadata,
             )
+            for study in package.studies:
+                study.status = program_study_status(selected_program, study.study_type)
         except Exception as exc:
             st.error(f"Validation package could not be generated: {exc}")
             st.stop()
+
+        report_record = {
+            "Report Name": project_name,
+            "Project": selected_program,
+            "Study Type": "Validation Reports",
+            "Date": study_date.isoformat(),
+            "Analyst": analyst,
+            "Format": "HTML / PDF",
+        }
+        if report_record["Report Name"] not in [
+            report["Report Name"] for report in st.session_state.reports_library
+        ]:
+            st.session_state.reports_library.append(report_record)
+        for program in st.session_state.validation_projects:
+            if str(program.get("Program Name") or program.get("Project Name")) == selected_program:
+                program["Final Package Generated"] = True
+                program["Status"] = "Completed"
+                program["Overall Status"] = "Completed"
+                program["Last Updated"] = date.today().isoformat()
+        record_program_activity(
+            selected_program,
+            "Validation Package",
+            "Package generated",
+            "Consolidated final validation package generated.",
+        )
 
         counts = study_counts(package.studies)
         st.markdown("### Executive Summary")
@@ -626,12 +1939,16 @@ def render_validation_reports_workspace() -> None:
             card_columns = st.columns(3)
             for column, study in zip(card_columns, package.studies[row_start : row_start + 3]):
                 with column:
+                    lifecycle_status = program_study_status(selected_program, study.study_type)
                     st.markdown(
                         f"""
                         <div class="svap-card">
                           <div class="svap-card-label">{escape(study.study_type)}</div>
                           <div class="svap-card-value">{status_badge_html(study.decision)}</div>
-                          <div class="svap-card-subtext">{escape(study.study_name)}<br>{escape(study.date)}</div>
+                          <div class="svap-card-subtext">
+                            {escape(study.study_name)}<br>{escape(study.date)}<br>
+                            Lifecycle: {lifecycle_badge_html(lifecycle_status)}
+                          </div>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -729,6 +2046,12 @@ def render_validation_reports_workspace() -> None:
 def render_study_type_selector() -> str:
     """Render study-type selection and module capabilities."""
 
+    render_page_header(
+        "Validation Workspace",
+        "Launch validation studies from a common workspace with shared documentation, criteria, analysis, and export patterns.",
+    )
+    if "selected_sample_dataset" in st.session_state:
+        st.info(f"Selected sample dataset: {st.session_state.selected_sample_dataset}")
     st.subheader("Study Type")
     study_type = st.selectbox("Select validation study type", get_study_type_names())
     config = get_study_type_config(study_type)
@@ -756,6 +2079,7 @@ def render_study_type_selector() -> str:
 def render_study_documentation(study_type: str) -> dict[str, object]:
     """Render validation study documentation inputs and return collected values."""
 
+    settings = platform_settings()
     is_precision = study_type == "Precision Study"
     is_linearity = study_type == "Linearity Study"
     is_stability = study_type == "Stability Study"
@@ -816,6 +2140,12 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
     )
 
     st.subheader("Validation Study Documentation")
+    project_names = [str(project["Project Name"]) for project in st.session_state.validation_projects]
+    validation_project_name = st.selectbox(
+        "Validation Project",
+        project_names,
+        index=0 if project_names else None,
+    )
     first_row = st.columns(3)
     with first_row[0]:
         study_name = st.text_input(
@@ -823,7 +2153,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
             value=default_study_name,
         )
     with first_row[1]:
-        analyst_name = st.text_input("Analyst Name")
+        analyst_name = st.text_input("Analyst Name", value=settings.get("Analyst Name", ""))
     with first_row[2]:
         study_date = st.date_input("Study Date", value=date.today())
 
@@ -864,7 +2194,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
             if is_linearity
             else "precision"
         )
-        instrument_name = instrument_id = laboratory_site = ""
+        instrument_name = instrument_id = ""
+        laboratory_site = settings.get("Laboratory Name", "")
         reagent_lot = calibrator_lot = qc_lot = operator_name = ""
         study_protocol_id = clsi_guideline_reference = ""
         dbs_collection_device = dbs_punch_size = extraction_method = specimen_matrix = ""
@@ -876,7 +2207,11 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
             with lab_row_1[1]:
                 instrument_id = st.text_input("Instrument ID", key=f"{key_prefix}_instrument_id")
             with lab_row_1[2]:
-                laboratory_site = st.text_input("Laboratory Site", key=f"{key_prefix}_laboratory_site")
+                laboratory_site = st.text_input(
+                    "Laboratory Site",
+                    value=settings.get("Laboratory Name", ""),
+                    key=f"{key_prefix}_laboratory_site",
+                )
 
             lab_row_2 = st.columns(3)
             with lab_row_2[0]:
@@ -963,6 +2298,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     metadata = {
         "Study Name": study_name,
+        "Validation Project Name": validation_project_name,
         "Study Objective": study_objective,
         "Study Design": study_design,
         "Assay / Biomarker": assay_name,
@@ -974,6 +2310,13 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Notes": notes,
         "Deviations": deviations,
         "Conclusions": conclusions,
+        "Laboratory Name": settings.get("Laboratory Name", ""),
+        "Department": settings.get("Department", ""),
+        "Address": settings.get("Address", ""),
+        "Reviewer": settings.get("Reviewer Name", ""),
+        "Report Logo": settings.get("Report Logo", ""),
+        "Report Footer": settings.get("Report Footer", ""),
+        "Organization Branding": settings.get("Organization Branding", ""),
     }
     if not (is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs or is_microtainer):
         metadata["Reference Method"] = reference_method
@@ -1018,9 +2361,9 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_microtainer:
             metadata.update(
                 {
-                    "Reviewer": "",
+                    "Reviewer": settings.get("Reviewer Name", ""),
                     "Protocol Number": "",
-                    "Laboratory Name": laboratory_site,
+                    "Laboratory Name": laboratory_site or settings.get("Laboratory Name", ""),
                     "Instrument": instrument_name,
                     "Microtainer Collection Device": collection_device,
                     "Microtainer Type": microtainer_type,
@@ -2012,6 +3355,7 @@ def render_detection_workspace(metadata: dict[str, object]) -> None:
 
         st.subheader("Analyzed Dataset")
         st.dataframe(display_analyzed, width="stretch")
+        render_submit_for_review("Detection Capability", metadata)
 
         html_report = build_detection_html_report(
             lob_summary=result.lob_summary,
@@ -2441,6 +3785,7 @@ def render_dbs_workspace(metadata: dict[str, object]) -> None:
 
         st.subheader("Analyzed Dataset")
         st.dataframe(format_dbs_table(result.analyzed_data), width="stretch")
+        render_submit_for_review("DBS Validation", metadata)
 
         html_report = build_dbs_html_report(
             study_summary=result.study_summary,
@@ -2747,6 +4092,7 @@ def render_microtainer_workspace(metadata: dict[str, object]) -> None:
         st.dataframe(format_microtainer_table(result.analyzed_data), width="stretch")
         st.subheader("Final Validation Decision")
         st.info(interpretation)
+        render_submit_for_review("Microtainer Validation", metadata)
 
         visualization_html = {
             "Microtainer vs Reference Scatter Plot": scatter_plot.to_html(full_html=False, include_plotlyjs="cdn"),
@@ -3064,6 +4410,7 @@ def render_accuracy_workspace(metadata: dict[str, object]) -> None:
 
         st.subheader("Analyzed Data")
         st.dataframe(result.analyzed_data, width="stretch")
+        render_submit_for_review("Accuracy Study", metadata)
 
         html_report = build_accuracy_html_report(
             accuracy_summary=result.accuracy_summary,
@@ -3275,6 +4622,7 @@ def render_precision_workspace(metadata: dict[str, object]) -> None:
 
         st.subheader("Analyzed Data")
         st.dataframe(result.analyzed_data, width="stretch")
+        render_submit_for_review("Precision Study", metadata)
 
         html_report = build_precision_html_report(
             level_summary=result.level_summary,
@@ -3492,6 +4840,7 @@ def render_linearity_workspace(metadata: dict[str, object]) -> None:
             result.analyzed_data.drop(columns=["Timepoint Sort"], errors="ignore"),
             width="stretch",
         )
+        render_submit_for_review("Linearity Study", metadata)
 
         html_report = build_linearity_html_report(
             result.level_summary,
@@ -3761,6 +5110,7 @@ def render_stability_workspace(metadata: dict[str, object]) -> None:
             result.analyzed_data.drop(columns=["Timepoint Sort"], errors="ignore"),
             width="stretch",
         )
+        render_submit_for_review("Stability Study", metadata)
 
         html_report = build_stability_html_report(
             stability_summary=result.stability_summary,
@@ -3860,23 +5210,78 @@ def main() -> None:
     """Render the Streamlit interface and run selected analyses."""
 
     st.set_page_config(page_title=APP_TITLE, layout="wide")
+    initialize_platform_state()
     st.title(APP_TITLE)
     inject_validation_styles()
     st.caption(
-        "Validation analytics for assay studies and diagnostic laboratory workflows."
+        f"{APP_VERSION} {APP_STATUS} · Validation analytics for assay studies and diagnostic laboratory workflows."
     )
 
+    page_options = [
+        "Dashboard",
+        "Projects",
+        "Validation Workspace",
+        "Validation Review Center",
+        "Reports Library",
+        "Platform Settings",
+    ]
+    demo_mode = st.sidebar.checkbox("Developer / demo mode", value=False)
+    if demo_mode:
+        page_options.append("Sample Datasets")
+    if "pending_page" in st.session_state:
+        st.session_state.navigation_choice = st.session_state.pop("pending_page")
+    if "navigation_choice" not in st.session_state or st.session_state.navigation_choice not in page_options:
+        st.session_state.navigation_choice = "Dashboard"
     page = st.sidebar.radio(
         "Navigation",
-        ["Dashboard", "Study Workspace", "Validation Reports"],
+        page_options,
+        key="navigation_choice",
     )
+    with st.sidebar.expander("Version & Release Notes", expanded=False):
+        st.markdown(f"### {APP_VERSION} Production Release")
+        st.caption("Production navigation is focused on Project → Validation Study → Review → Report Package.")
+        st.markdown("**Core Validation Modules**")
+        st.write("\n".join(f"- {module}" for module in CORE_VALIDATION_MODULES))
+        st.markdown("**Platform Features**")
+        st.write(
+            "\n".join(
+                [
+                    "- Validation Program Management",
+                    "- Validation Workspace",
+                    "- Validation Review Center",
+                    "- Reports Library",
+                    "- Consolidated Validation Packages",
+                    "- PDF Export",
+                    "- HTML Export",
+                    "- Platform Settings",
+                ]
+            )
+        )
+        st.markdown("**Known Limitations**")
+        st.write("- Audit Trail planned for v1.1\n- Electronic Signatures planned for v1.2")
 
     if page == "Dashboard":
         render_dashboard()
         st.stop()
 
-    if page == "Validation Reports":
-        render_validation_reports_workspace()
+    if page == "Projects":
+        render_projects_workspace()
+        st.stop()
+
+    if page == "Validation Review Center":
+        render_validation_review_center()
+        st.stop()
+
+    if page == "Reports Library":
+        render_reports_library()
+        st.stop()
+
+    if page == "Sample Datasets":
+        render_sample_dataset_library()
+        st.stop()
+
+    if page == "Platform Settings":
+        render_platform_settings()
         st.stop()
 
     study_type = render_study_type_selector()
@@ -4084,6 +5489,7 @@ def main() -> None:
 
         st.subheader("Analyzed Data")
         st.dataframe(result.analyzed_data, width='stretch')
+        render_submit_for_review("Method Comparison", metadata)
 
         html_report = build_html_report(
             summary_table,
