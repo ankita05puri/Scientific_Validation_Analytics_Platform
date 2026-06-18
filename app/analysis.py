@@ -92,6 +92,28 @@ class AccuracyResult:
     include_column: str | None = None
 
 
+@dataclass(frozen=True)
+class DetectionCapabilityResult:
+    """Container for cleaned LoB/LoD/LoQ detection capability outputs."""
+
+    analyzed_data: pd.DataFrame
+    lob_summary: pd.DataFrame
+    lod_summary: pd.DataFrame
+    loq_summary: pd.DataFrame
+    methodology_table: pd.DataFrame
+    data_quality_summary: pd.DataFrame
+    outlier_table: pd.DataFrame
+    decision_matrix: pd.DataFrame
+    overall_summary: dict[str, float | str]
+    sample_id_column: str
+    sample_type_column: str
+    concentration_column: str
+    result_column: str
+    replicate_column: str | None = None
+    units_column: str | None = None
+    include_column: str | None = None
+
+
 def _safe_float(value: float) -> float:
     """Return a plain float, preserving missing values as NaN."""
 
@@ -1665,5 +1687,466 @@ def run_accuracy_study(
         sample_id_column=sample_id_column,
         units_column=units_column,
         replicate_column=replicate_column,
+        include_column=include_column,
+    )
+
+
+def prepare_detection_capability_data(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    sample_type_column: str,
+    concentration_column: str,
+    result_column: str,
+    replicate_column: str | None = None,
+    units_column: str | None = None,
+    include_column: str | None = None,
+) -> pd.DataFrame:
+    """Clean LoB/LoD/LoQ input data for detection capability analysis."""
+
+    selected_columns = [
+        sample_id_column,
+        sample_type_column,
+        concentration_column,
+        result_column,
+    ]
+    selected_columns.extend(
+        [column for column in [replicate_column, units_column, include_column] if column]
+    )
+    selected_columns = list(dict.fromkeys(selected_columns))
+    detection_data = data[selected_columns].copy()
+    rename_map = {
+        sample_id_column: "Sample ID",
+        sample_type_column: "Sample Type",
+        concentration_column: "Concentration Level",
+        result_column: "Observed Result",
+    }
+    if replicate_column:
+        rename_map[replicate_column] = "Replicate"
+    if units_column:
+        rename_map[units_column] = "Units"
+    if include_column:
+        rename_map[include_column] = "Include in Analysis"
+
+    detection_data = detection_data.rename(columns=rename_map)
+    if "Include in Analysis" in detection_data.columns:
+        include_values = (
+            detection_data["Include in Analysis"].astype(str).str.strip().str.lower()
+        )
+        detection_data = detection_data[include_values.isin(["yes", "y", "true", "1"])]
+
+    detection_data["Sample Type"] = detection_data["Sample Type"].astype(str).str.strip()
+    detection_data["Concentration Level"] = pd.to_numeric(
+        detection_data["Concentration Level"], errors="coerce"
+    )
+    detection_data["Observed Result"] = pd.to_numeric(
+        detection_data["Observed Result"], errors="coerce"
+    )
+    if "Replicate" in detection_data.columns:
+        detection_data["Replicate"] = pd.to_numeric(
+            detection_data["Replicate"], errors="coerce"
+        )
+    detection_data = detection_data.dropna(
+        subset=["Sample ID", "Sample Type", "Concentration Level", "Observed Result"]
+    ).reset_index(drop=True)
+    if detection_data.empty:
+        raise ValueError("No valid detection capability rows are available.")
+    return detection_data
+
+
+def identify_iqr_outliers(
+    data: pd.DataFrame,
+    group_column: str,
+    value_column: str,
+) -> pd.DataFrame:
+    """Identify outliers within groups using the 1.5 x IQR rule."""
+
+    outlier_rows: list[pd.DataFrame] = []
+    for _, group in data.groupby(group_column, dropna=False):
+        q1 = group[value_column].quantile(0.25)
+        q3 = group[value_column].quantile(0.75)
+        iqr = q3 - q1
+        lower = q1 - (1.5 * iqr)
+        upper = q3 + (1.5 * iqr)
+        flagged = group[
+            (group[value_column] < lower) | (group[value_column] > upper)
+        ].copy()
+        if not flagged.empty:
+            flagged["IQR Lower Bound"] = lower
+            flagged["IQR Upper Bound"] = upper
+            outlier_rows.append(flagged)
+    if not outlier_rows:
+        return pd.DataFrame(
+            columns=[
+                "Sample ID",
+                "Sample Type",
+                "Concentration Level",
+                "Replicate",
+                "Observed Result",
+                "IQR Lower Bound",
+                "IQR Upper Bound",
+            ]
+        )
+    return pd.concat(outlier_rows, ignore_index=True)
+
+
+def assess_detection_data_quality(
+    raw_data: pd.DataFrame,
+    analyzed_data: pd.DataFrame,
+    selected_columns: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Assess replicate-level data quality for detection capability studies."""
+
+    available_columns = [column for column in selected_columns if column in raw_data.columns]
+    raw_selected = raw_data[available_columns].copy()
+    missing_values = int(raw_selected.isna().sum().sum())
+    excluded_replicates = int(len(raw_data) - len(analyzed_data))
+    outlier_table = identify_iqr_outliers(
+        analyzed_data, "Sample Type", "Observed Result"
+    )
+    blank_count = int((analyzed_data["Sample Type"].str.lower() == "blank").sum())
+    low_count = int(
+        (analyzed_data["Sample Type"].str.lower() == "low concentration").sum()
+    )
+    loq_counts = (
+        analyzed_data[
+            analyzed_data["Sample Type"].str.lower() == "quantitation level"
+        ]
+        .groupby("Concentration Level")
+        .size()
+    )
+    min_loq_replicates = int(loq_counts.min()) if not loq_counts.empty else 0
+
+    rows = [
+        {
+            "Check": "Missing values",
+            "Observed": missing_values,
+            "Recommendation": "No missing required values",
+            "Status": "PASS" if missing_values == 0 else "FAIL",
+        },
+        {
+            "Check": "Excluded replicates",
+            "Observed": excluded_replicates,
+            "Recommendation": "Review intentionally excluded or invalid rows",
+            "Status": "PASS" if excluded_replicates == 0 else "BORDERLINE",
+        },
+        {
+            "Check": "IQR outliers",
+            "Observed": int(len(outlier_table)),
+            "Recommendation": "Review outliers before final approval",
+            "Status": "PASS" if outlier_table.empty else "BORDERLINE",
+        },
+        {
+            "Check": "Blank replicates",
+            "Observed": blank_count,
+            "Recommendation": "At least 20 blank replicates",
+            "Status": "PASS" if blank_count >= 20 else "BORDERLINE",
+        },
+        {
+            "Check": "Low-level replicates",
+            "Observed": low_count,
+            "Recommendation": "At least 20 low-level replicates",
+            "Status": "PASS" if low_count >= 20 else "BORDERLINE",
+        },
+        {
+            "Check": "Quantitation level replicates",
+            "Observed": min_loq_replicates,
+            "Recommendation": "At least 5 replicates per quantitation level",
+            "Status": "PASS" if min_loq_replicates >= 5 else "BORDERLINE",
+        },
+    ]
+    return pd.DataFrame(rows), outlier_table.reset_index(drop=True)
+
+
+def build_detection_methodology_table(
+    lob_summary: pd.DataFrame,
+    lod_summary: pd.DataFrame,
+    loq_summary: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+) -> pd.DataFrame:
+    """Build formula transparency table for detection capability outputs."""
+
+    lob_row = lob_summary.iloc[0]
+    lod_row = lod_summary.iloc[0]
+    loq_row = loq_summary[
+        loq_summary["Concentration Level"] == overall_summary["LoQ"]
+    ]
+    loq_inputs = "No concentration met the target CV% criterion"
+    if not loq_row.empty:
+        first_loq = loq_row.iloc[0]
+        loq_inputs = (
+            f"Concentration={first_loq['Concentration Level']:.3f}; "
+            f"Mean={first_loq['Mean']:.3f}; SD={first_loq['SD']:.3f}"
+        )
+    return pd.DataFrame(
+        [
+            {
+                "Metric": "LoB",
+                "Formula": "LoB = Mean Blank + 1.645 x SD Blank",
+                "Inputs Used": f"Mean Blank={lob_row['Mean Blank']:.3f}; SD Blank={lob_row['SD Blank']:.3f}",
+                "Final Result": overall_summary["LoB"],
+            },
+            {
+                "Metric": "LoD",
+                "Formula": "LoD = LoB + 1.645 x SD Low Concentration Sample",
+                "Inputs Used": f"LoB={overall_summary['LoB']:.3f}; SD Low={lod_row['SD Low Sample']:.3f}",
+                "Final Result": overall_summary["LoD"],
+            },
+            {
+                "Metric": "CV%",
+                "Formula": "CV% = (SD / Mean) x 100",
+                "Inputs Used": loq_inputs,
+                "Final Result": overall_summary["Operational LoQ CV%"],
+            },
+            {
+                "Metric": "Operational LoQ",
+                "Formula": "Lowest concentration meeting target CV%",
+                "Inputs Used": f"Target CV%={overall_summary['Target LoQ CV%']:.2f}%",
+                "Final Result": overall_summary["LoQ"],
+            },
+        ]
+    )
+
+
+def build_detection_decision_matrix(
+    criteria_result: dict[str, object],
+) -> pd.DataFrame:
+    """Build final Detection Capability decision matrix."""
+
+    checks = pd.DataFrame(criteria_result["checks"])
+    fail_count = int((~checks["Met"] & ~checks["Borderline"]).sum())
+    borderline_count = int(checks["Borderline"].sum())
+    decision = str(criteria_result["decision"])
+    if decision == "PASS":
+        rationale = "All criteria passed."
+    elif decision == "BORDERLINE":
+        rationale = "No criterion exceeded its limit, but at least one criterion is within the borderline zone."
+    else:
+        rationale = "At least one criterion exceeded the acceptance limit."
+    return pd.DataFrame(
+        [
+            {"Decision Rule": "PASS", "Condition": "All criteria pass", "Applies": decision == "PASS"},
+            {"Decision Rule": "BORDERLINE", "Condition": "Any criterion within borderline zone", "Applies": decision == "BORDERLINE"},
+            {"Decision Rule": "FAIL", "Condition": "Any criterion exceeds acceptance limit", "Applies": decision == "FAIL"},
+            {
+                "Decision Rule": "Final Decision",
+                "Condition": f"{decision}: {rationale} Failed criteria={fail_count}; borderline criteria={borderline_count}.",
+                "Applies": True,
+            },
+        ]
+    )
+
+
+def calculate_detection_capability_summary(
+    analyzed_data: pd.DataFrame,
+    target_loq_cv: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float | str]]:
+    """Calculate LoB, LoD, and LoQ detection capability summaries."""
+
+    sample_type = analyzed_data["Sample Type"].str.lower()
+    blank_data = analyzed_data[sample_type == "blank"]
+    low_data = analyzed_data[sample_type == "low concentration"]
+    loq_data = analyzed_data[sample_type == "quantitation level"]
+
+    if blank_data.empty:
+        raise ValueError("At least one Blank row is required for LoB analysis.")
+    if low_data.empty:
+        raise ValueError("At least one Low Concentration row is required for LoD analysis.")
+    if loq_data.empty:
+        raise ValueError("At least one Quantitation Level row is required for LoQ analysis.")
+
+    mean_blank = blank_data["Observed Result"].mean()
+    sd_blank = blank_data["Observed Result"].std(ddof=1)
+    lob = mean_blank + (1.645 * sd_blank)
+    lob_summary = pd.DataFrame(
+        [
+            {
+                "N": int(blank_data["Observed Result"].count()),
+                "Mean Blank": _safe_float(mean_blank),
+                "SD Blank": _safe_float(sd_blank),
+                "LoB": _safe_float(lob),
+            }
+        ]
+    )
+
+    mean_low = low_data["Observed Result"].mean()
+    sd_low = low_data["Observed Result"].std(ddof=1)
+    lod = lob + (1.645 * sd_low)
+    lod_summary = pd.DataFrame(
+        [
+            {
+                "N": int(low_data["Observed Result"].count()),
+                "Mean Low Sample": _safe_float(mean_low),
+                "SD Low Sample": _safe_float(sd_low),
+                "LoD": _safe_float(lod),
+            }
+        ]
+    )
+
+    loq_summary = (
+        loq_data.groupby("Concentration Level", dropna=False)["Observed Result"]
+        .agg(N="count", Mean="mean", SD="std")
+        .reset_index()
+        .sort_values("Concentration Level")
+        .reset_index(drop=True)
+    )
+    loq_summary["CV%"] = np.where(
+        loq_summary["Mean"] != 0,
+        (loq_summary["SD"] / loq_summary["Mean"]) * 100,
+        np.nan,
+    )
+    loq_summary["Bias %"] = np.where(
+        loq_summary["Concentration Level"] != 0,
+        ((loq_summary["Mean"] - loq_summary["Concentration Level"]) / loq_summary["Concentration Level"]) * 100,
+        np.nan,
+    )
+    loq_summary["Recovery %"] = np.where(
+        loq_summary["Concentration Level"] != 0,
+        (loq_summary["Mean"] / loq_summary["Concentration Level"]) * 100,
+        np.nan,
+    )
+    loq_summary["Pass/Fail"] = np.where(
+        loq_summary["CV%"] <= target_loq_cv,
+        "PASS",
+        "FAIL",
+    )
+
+    passing_loq = loq_summary[loq_summary["Pass/Fail"] == "PASS"]
+    operational_loq = (
+        _safe_float(passing_loq["Concentration Level"].min())
+        if not passing_loq.empty
+        else np.nan
+    )
+    operational_row = (
+        passing_loq.loc[passing_loq["Concentration Level"].idxmin()]
+        if not passing_loq.empty
+        else pd.Series(dtype=object)
+    )
+    worst_row = loq_summary.loc[loq_summary["CV%"].idxmax()]
+    overall_summary = {
+        "LoB": _safe_float(lob),
+        "LoD": _safe_float(lod),
+        "LoQ": operational_loq,
+        "Operational LoQ CV%": _safe_float(operational_row.get("CV%", np.nan)),
+        "Worst Performing Level": _safe_float(worst_row["Concentration Level"]),
+        "Worst CV%": _safe_float(worst_row["CV%"]),
+        "Blank Replicates": int(blank_data["Observed Result"].count()),
+        "Low-Level Replicates": int(low_data["Observed Result"].count()),
+        "Quantitation Levels Tested": int(loq_summary["Concentration Level"].nunique()),
+        "Target LoQ CV%": float(target_loq_cv),
+    }
+    return lob_summary, lod_summary, loq_summary, overall_summary
+
+
+def evaluate_detection_capability_criteria(
+    overall_summary: dict[str, float | str],
+    max_lob: float,
+    max_lod: float,
+    target_loq_cv: float,
+    max_loq_concentration: float,
+    borderline_zone: float,
+) -> dict[str, object]:
+    """Evaluate preliminary detection capability acceptance criteria."""
+
+    def max_check(label: str, observed: float, limit: float, suffix: str = "") -> dict[str, object]:
+        zone = borderline_zone if suffix == "%" else limit * (borderline_zone / 100)
+        raw_status = _max_threshold_status(observed, limit, zone)
+        status = "BORDERLINE" if raw_status == "PASS WITH CAUTION" else raw_status
+        margin_percent = ((limit - observed) / limit) * 100 if limit else np.nan
+        if pd.isna(observed):
+            interpretation = "Observed value could not be calculated."
+            margin_text = "Not available"
+        elif observed <= limit:
+            margin_text = f"{margin_percent:.1f}% below limit"
+            interpretation = f"Observed value is {margin_text}."
+        else:
+            margin_text = f"{abs(margin_percent):.1f}% above limit"
+            interpretation = f"Observed value exceeds the acceptance limit by {margin_text}."
+        return {
+            "Criterion": label,
+            "Observed": observed,
+            "Acceptance Limit": f"<= {limit:g}{suffix}",
+            "Margin to Limit": margin_text,
+            "Scientific Interpretation": interpretation,
+            "Met": status == "PASS",
+            "Borderline": status == "BORDERLINE",
+        }
+
+    checks = [
+        max_check("Maximum acceptable LoB", overall_summary.get("LoB", np.nan), max_lob),
+        max_check("Maximum acceptable LoD", overall_summary.get("LoD", np.nan), max_lod),
+        max_check("Target LoQ CV%", overall_summary.get("Operational LoQ CV%", np.nan), target_loq_cv, "%"),
+        max_check(
+            "Maximum acceptable LoQ concentration",
+            overall_summary.get("LoQ", np.nan),
+            max_loq_concentration,
+        ),
+    ]
+
+    if all(check["Met"] for check in checks):
+        decision = "PASS"
+    elif all(check["Met"] or check["Borderline"] for check in checks):
+        decision = "BORDERLINE"
+    else:
+        decision = "FAIL"
+    return {"decision": decision, "checks": checks}
+
+
+def run_detection_capability_study(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    sample_type_column: str,
+    concentration_column: str,
+    result_column: str,
+    replicate_column: str | None = None,
+    units_column: str | None = None,
+    include_column: str | None = None,
+    target_loq_cv: float = 20.0,
+) -> DetectionCapabilityResult:
+    """Run the complete detection capability workflow."""
+
+    analyzed_data = prepare_detection_capability_data(
+        data=data,
+        sample_id_column=sample_id_column,
+        sample_type_column=sample_type_column,
+        concentration_column=concentration_column,
+        result_column=result_column,
+        replicate_column=replicate_column,
+        units_column=units_column,
+        include_column=include_column,
+    )
+    lob_summary, lod_summary, loq_summary, overall_summary = (
+        calculate_detection_capability_summary(analyzed_data, target_loq_cv)
+    )
+    methodology_table = build_detection_methodology_table(
+        lob_summary, lod_summary, loq_summary, overall_summary
+    )
+    selected_columns = [
+        sample_id_column,
+        sample_type_column,
+        concentration_column,
+        result_column,
+    ]
+    selected_columns.extend(
+        [column for column in [replicate_column, units_column, include_column] if column]
+    )
+    data_quality_summary, outlier_table = assess_detection_data_quality(
+        data, analyzed_data, selected_columns
+    )
+    return DetectionCapabilityResult(
+        analyzed_data=analyzed_data,
+        lob_summary=lob_summary,
+        lod_summary=lod_summary,
+        loq_summary=loq_summary,
+        methodology_table=methodology_table,
+        data_quality_summary=data_quality_summary,
+        outlier_table=outlier_table,
+        decision_matrix=pd.DataFrame(),
+        overall_summary=overall_summary,
+        sample_id_column=sample_id_column,
+        sample_type_column=sample_type_column,
+        concentration_column=concentration_column,
+        result_column=result_column,
+        replicate_column=replicate_column,
+        units_column=units_column,
         include_column=include_column,
     )

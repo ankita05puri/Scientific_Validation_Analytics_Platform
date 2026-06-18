@@ -826,3 +826,314 @@ def create_individual_accuracy_bias_plot(
     )
     figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
     return figure
+
+
+def create_blank_distribution_histogram(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create blank replicate histogram for LoB review."""
+
+    blank_data = analyzed_data[
+        analyzed_data["Sample Type"].str.lower() == "blank"
+    ]
+    figure = px.histogram(
+        blank_data,
+        x="Observed Result",
+        nbins=16,
+        title="Blank Distribution Histogram",
+        labels={"Observed Result": "Blank Observed Result"},
+        template="plotly_white",
+    )
+    figure.update_traces(marker_color="#2a6f97")
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_blank_replicate_boxplot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create blank replicate boxplot for LoB review."""
+
+    blank_data = analyzed_data[
+        analyzed_data["Sample Type"].str.lower() == "blank"
+    ]
+    figure = px.box(
+        blank_data,
+        x="Sample Type",
+        y="Observed Result",
+        points="all",
+        title="Blank Replicate Boxplot",
+        labels={"Observed Result": "Observed Result"},
+        template="plotly_white",
+    )
+    figure.update_traces(marker={"color": "#2a6f97"})
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_low_level_distribution_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create low-level replicate distribution for LoD review."""
+
+    low_data = analyzed_data[
+        analyzed_data["Sample Type"].str.lower() == "low concentration"
+    ]
+    figure = px.box(
+        low_data,
+        x="Sample Type",
+        y="Observed Result",
+        points="all",
+        title="Low-Level Replicate Distribution",
+        labels={"Observed Result": "Observed Result"},
+        template="plotly_white",
+    )
+    figure.update_traces(marker={"color": "#2a6f97"})
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_lob_lod_visualization(lob_summary: pd.DataFrame, lod_summary: pd.DataFrame) -> go.Figure:
+    """Create LoB versus LoD bar visualization."""
+
+    plot_data = pd.DataFrame(
+        [
+            {"Metric": "LoB", "Value": lob_summary["LoB"].iloc[0]},
+            {"Metric": "LoD", "Value": lod_summary["LoD"].iloc[0]},
+        ]
+    )
+    figure = px.bar(
+        plot_data,
+        x="Metric",
+        y="Value",
+        text="Value",
+        title="LoB vs LoD Visualization",
+        labels={"Value": "Calculated Limit"},
+        template="plotly_white",
+    )
+    figure.update_traces(
+        marker_color=["#2a6f97", "#9467bd"],
+        texttemplate="%{text:.3f}",
+        textposition="outside",
+    )
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_loq_cv_plot(loq_summary: pd.DataFrame, target_cv: float) -> go.Figure:
+    """Create CV% versus concentration plot for LoQ review."""
+
+    figure = px.line(
+        loq_summary,
+        x="Concentration Level",
+        y="CV%",
+        markers=True,
+        title="CV% vs Concentration",
+        labels={"CV%": "CV%"},
+        template="plotly_white",
+    )
+    figure.add_hline(
+        y=target_cv,
+        line_dash="dash",
+        line_color="#9467bd",
+        annotation_text=f"Target CV% {target_cv:.1f}%",
+        annotation_position="top left",
+    )
+    figure.update_traces(marker={"size": 10, "line": {"color": "#102a43", "width": 1}})
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_loq_recovery_plot(loq_summary: pd.DataFrame) -> go.Figure:
+    """Create recovery versus concentration plot for LoQ review."""
+
+    figure = px.line(
+        loq_summary,
+        x="Concentration Level",
+        y="Recovery %",
+        markers=True,
+        title="Recovery vs Concentration",
+        labels={"Recovery %": "Recovery (%)"},
+        template="plotly_white",
+    )
+    for y_value, dash in [(90, "dash"), (100, "solid"), (110, "dash")]:
+        figure.add_hline(
+            y=y_value,
+            line_dash=dash,
+            line_color="#808080" if y_value == 100 else "#9467bd",
+            annotation_text=f"{y_value}%",
+            annotation_position="top left",
+        )
+    figure.update_traces(marker={"size": 10, "line": {"color": "#102a43", "width": 1}})
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_loq_decision_plot(loq_summary: pd.DataFrame, target_cv: float) -> go.Figure:
+    """Create LoQ decision plot with pass/fail annotations."""
+
+    plot_data = loq_summary.copy()
+    figure = px.scatter(
+        plot_data,
+        x="Concentration Level",
+        y="CV%",
+        color="Pass/Fail",
+        text="Pass/Fail",
+        title="LoQ Decision Plot",
+        labels={"CV%": "CV%"},
+        color_discrete_map={
+            "PASS": STATUS_COLOR_MAP["PASS"],
+            "FAIL": STATUS_COLOR_MAP["FAIL"],
+        },
+        template="plotly_white",
+    )
+    figure.add_hline(
+        y=target_cv,
+        line_dash="dash",
+        line_color="#9467bd",
+        annotation_text=f"Target CV% {target_cv:.1f}%",
+        annotation_position="top left",
+    )
+    figure.update_traces(
+        marker={"size": 12, "line": {"color": "#102a43", "width": 1}},
+        textposition="top center",
+    )
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_detection_replicate_distribution_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create replicate distribution by quantitation concentration."""
+
+    loq_data = analyzed_data[
+        analyzed_data["Sample Type"].str.lower() == "quantitation level"
+    ]
+    figure = px.box(
+        loq_data,
+        x="Concentration Level",
+        y="Observed Result",
+        color="Concentration Level",
+        points="all",
+        title="Replicate Distribution by Concentration",
+        labels={"Observed Result": "Observed Result"},
+        template="plotly_white",
+    )
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_detection_replicate_scatter_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create observed result versus replicate number scatter plot."""
+
+    plot_data = analyzed_data.copy()
+    if "Replicate" not in plot_data.columns:
+        plot_data["Replicate"] = plot_data.groupby("Sample Type").cumcount() + 1
+    figure = px.scatter(
+        plot_data,
+        x="Replicate",
+        y="Observed Result",
+        color="Sample Type",
+        symbol="Sample Type",
+        hover_data=["Sample ID", "Concentration Level"],
+        title="Replicate Scatter Plot",
+        labels={"Observed Result": "Observed Result", "Replicate": "Replicate Number"},
+        template="plotly_white",
+    )
+    figure.update_traces(marker={"size": 9, "line": {"color": "#102a43", "width": 1}})
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_loq_precision_curve(
+    loq_summary: pd.DataFrame,
+    target_cv: float,
+    operational_loq: float,
+) -> go.Figure:
+    """Create LoQ precision curve highlighting the operational LoQ."""
+
+    figure = create_loq_cv_plot(loq_summary, target_cv)
+    figure.update_layout(title="LoQ Precision Curve")
+    if not pd.isna(operational_loq):
+        figure.add_vline(
+            x=operational_loq,
+            line_dash="dot",
+            line_color="#1f7a1f",
+            annotation_text=f"Operational LoQ {operational_loq:.3f}",
+            annotation_position="top right",
+        )
+    return figure
+
+
+def create_detection_capability_ladder(
+    overall_summary: dict[str, float | str],
+) -> go.Figure:
+    """Create single-axis Blank-to-LoQ detection capability ladder."""
+
+    ladder_data = pd.DataFrame(
+        [
+            {"Metric": "Blank", "Value": 0.0},
+            {"Metric": "LoB", "Value": overall_summary["LoB"]},
+            {"Metric": "LoD", "Value": overall_summary["LoD"]},
+            {"Metric": "LoQ", "Value": overall_summary["LoQ"]},
+        ]
+    )
+    figure = px.scatter(
+        ladder_data,
+        x="Value",
+        y=["Detection Capability"] * len(ladder_data),
+        text="Metric",
+        title="Detection Capability Ladder",
+        labels={"Value": "Result / Concentration", "y": ""},
+        template="plotly_white",
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=ladder_data["Value"],
+            y=["Detection Capability"] * len(ladder_data),
+            mode="lines",
+            line={"color": "#2a6f97", "width": 3},
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+    figure.update_traces(
+        marker={"size": 13, "line": {"color": "#102a43", "width": 1}},
+        textposition="top center",
+    )
+    figure.update_yaxes(showticklabels=False)
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_detection_density_plot(
+    analyzed_data: pd.DataFrame,
+    lob: float,
+    lod: float,
+) -> go.Figure:
+    """Create overlaid blank and low-level distribution density plot."""
+
+    plot_data = analyzed_data[
+        analyzed_data["Sample Type"].str.lower().isin(["blank", "low concentration"])
+    ].copy()
+    figure = px.histogram(
+        plot_data,
+        x="Observed Result",
+        color="Sample Type",
+        histnorm="probability density",
+        barmode="overlay",
+        opacity=0.55,
+        nbins=20,
+        title="Distribution Density Plot",
+        labels={"Observed Result": "Observed Result"},
+        template="plotly_white",
+    )
+    figure.add_vline(
+        x=lob,
+        line_dash="dash",
+        line_color="#2a6f97",
+        annotation_text=f"LoB {lob:.3f}",
+        annotation_position="top right",
+    )
+    figure.add_vline(
+        x=lod,
+        line_dash="dash",
+        line_color="#9467bd",
+        annotation_text=f"LoD {lod:.3f}",
+        annotation_position="top right",
+    )
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure

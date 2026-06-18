@@ -82,6 +82,10 @@ def build_criteria_table(criteria_result: dict[str, object]) -> pd.DataFrame:
         "Pass/Fail Status",
         "Borderline Status",
     ]
+    for optional_column in ["Margin to Limit", "Scientific Interpretation"]:
+        if optional_column in criteria_table.columns:
+            insert_at = 3 if optional_column == "Margin to Limit" else len(columns)
+            columns.insert(insert_at, optional_column)
     if "Classification" in criteria_table.columns:
         columns.insert(3, "Classification")
     return criteria_table[columns]
@@ -128,6 +132,12 @@ def format_precision_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFram
         formatted["Borderline Status"] = formatted["Borderline Status"].map(
             lambda value: "YES" if bool(value) else "NO"
         )
+    formatted = formatted.rename(
+        columns={
+            "Observed Value": "Observed",
+            "Pass/Fail Status": "Status",
+        }
+    )
     return formatted
 
 
@@ -183,9 +193,6 @@ def format_linearity_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFram
     formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
     if "Pass/Fail Status" in formatted.columns:
         formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
-        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
-            {"BORDERLINE": "PASS WITH CAUTION"}
-        )
     if "Borderline Status" in formatted.columns:
         formatted["Borderline Status"] = formatted["Borderline Status"].map(
             lambda value: "YES" if bool(value) else "NO"
@@ -262,9 +269,6 @@ def format_stability_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFram
     formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
     if "Pass/Fail Status" in formatted.columns:
         formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
-        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
-            {"BORDERLINE": "PASS WITH CAUTION"}
-        )
     if "Borderline Status" in formatted.columns:
         formatted["Borderline Status"] = formatted["Borderline Status"].map(
             lambda value: "YES" if bool(value) else "NO"
@@ -467,7 +471,7 @@ def criteria_table_to_badged_html(criteria_table: pd.DataFrame) -> str:
         cells = []
         for column in criteria_table.columns:
             value = row[column]
-            if column == "Pass/Fail Status":
+            if column in {"Pass/Fail Status", "Status"}:
                 cell_value = status_badge_html(str(value))
             else:
                 cell_value = escape(str(value))
@@ -2010,6 +2014,401 @@ def build_accuracy_html_report(
 </body>
 </html>
 """
+
+
+def format_detection_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format detection capability summary values for display and export."""
+
+    formatted = table.copy()
+    if "N" in formatted.columns:
+        formatted["N"] = formatted["N"].map(lambda value: f"{int(value)}")
+    for column in [
+        "Mean Blank",
+        "SD Blank",
+        "LoB",
+        "Mean Low Sample",
+        "SD Low Sample",
+        "LoD",
+        "Concentration Level",
+        "Mean",
+        "SD",
+        "Observed Result",
+        "IQR Lower Bound",
+        "IQR Upper Bound",
+        "Final Result",
+    ]:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 3)
+            )
+    for column in ["CV%", "Bias %", "Recovery %"]:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 2, "%")
+            )
+    return formatted
+
+
+def format_detection_overall_summary(summary: dict[str, float | str]) -> pd.DataFrame:
+    """Format overall detection capability results."""
+
+    rows = [
+        ("LoB", _format_measurement(summary["LoB"], 3)),
+        ("LoD", _format_measurement(summary["LoD"], 3)),
+        ("Operational LoQ", _format_measurement(summary["LoQ"], 3)),
+        ("Operational LoQ CV%", _format_measurement(summary["Operational LoQ CV%"], 2, "%")),
+        ("Blank Replicates", str(int(summary.get("Blank Replicates", 0)))),
+        ("Low-Level Replicates", str(int(summary.get("Low-Level Replicates", 0)))),
+        ("Quantitation Levels Tested", str(int(summary.get("Quantitation Levels Tested", 0)))),
+        ("Worst Performing Level", _format_measurement(summary["Worst Performing Level"], 3)),
+        ("Worst CV%", _format_measurement(summary["Worst CV%"], 2, "%")),
+    ]
+    return pd.DataFrame(rows, columns=["Metric", "Value"])
+
+
+def format_detection_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFrame:
+    """Format detection capability criteria table."""
+
+    formatted = criteria_table.copy()
+
+    def format_observed(row: pd.Series) -> str:
+        value = row["Observed Value"]
+        if pd.isna(value):
+            return ""
+        criterion = str(row["Criterion"]).lower()
+        suffix = "%" if "cv" in criterion else ""
+        digits = 2 if suffix else 3
+        return _format_measurement(value, digits, suffix)
+
+    formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
+    if "Pass/Fail Status" in formatted.columns:
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
+            {"BORDERLINE": "PASS WITH CAUTION"}
+        )
+    if "Borderline Status" in formatted.columns:
+        formatted["Borderline Status"] = formatted["Borderline Status"].map(
+            lambda value: "YES" if bool(value) else "NO"
+        )
+    return formatted
+
+
+def build_detection_executive_summary(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> dict[str, str]:
+    """Build display values for detection capability executive summary cards."""
+
+    if criteria_table is not None:
+        status_column = "Status" if "Status" in criteria_table.columns else "Pass/Fail Status"
+        counts = count_statuses(criteria_table, status_column)
+    else:
+        counts = {"BORDERLINE": 0, "FAIL": 0}
+    return {
+        "Overall Decision": decision,
+        "LoB": _format_measurement(overall_summary["LoB"], 3),
+        "LoD": _format_measurement(overall_summary["LoD"], 3),
+        "Operational LoQ": _format_measurement(overall_summary["LoQ"], 3),
+        "LoQ CV%": _format_measurement(overall_summary["Operational LoQ CV%"], 2, "%"),
+        "Blank Replicates": str(int(overall_summary.get("Blank Replicates", 0))),
+        "Low-Level Replicates": str(int(overall_summary.get("Low-Level Replicates", 0))),
+        "Quantitation Levels Tested": str(int(overall_summary.get("Quantitation Levels Tested", 0))),
+    }
+
+
+def detection_executive_summary_html(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> str:
+    """Render detection capability executive summary cards for HTML reports."""
+
+    summary_values = build_detection_executive_summary(
+        overall_summary, decision, criteria_table
+    )
+    cards = []
+    for label, value in summary_values.items():
+        value_html = status_badge_html(value) if label == "Overall Decision" else escape(value)
+        cards.append(
+            f"""
+            <div class="summary-card">
+              <div class="summary-label">{escape(label)}</div>
+              <div class="summary-value">{value_html}</div>
+            </div>
+            """
+        )
+    return '<div class="summary-grid">' + "".join(cards) + "</div>"
+
+
+def generate_detection_interpretation(
+    overall_summary: dict[str, float | str],
+    data_quality_summary: pd.DataFrame,
+    criteria: dict[str, float],
+    decision: str,
+    metadata: dict[str, object],
+) -> str:
+    """Generate a scientific interpretation for LoB/LoD/LoQ studies."""
+
+    study_name = metadata.get("Study Name") or "this detection capability study"
+    biomarker = metadata.get("Assay / Biomarker") or "the selected assay"
+    quality_status = data_quality_summary["Status"].astype(str).str.upper()
+    quality_findings = (
+        f"{int((quality_status == 'PASS').sum())} data quality checks passed; "
+        f"{int((quality_status == 'BORDERLINE').sum())} require reviewer attention; "
+        f"{int((quality_status == 'FAIL').sum())} failed."
+    )
+    if decision == "PASS":
+        conclusion = "The observed LoB, LoD, and LoQ findings meet the selected preliminary detection capability criteria."
+    elif decision == "BORDERLINE":
+        conclusion = "The study meets the selected criteria with caution; borderline findings should be reviewed before formal approval."
+    else:
+        conclusion = "One or more detection capability criteria were not met and should be investigated before formal approval."
+
+    return build_sectioned_interpretation(
+        {
+            "Objective": (
+                f"{study_name} evaluated {biomarker} detection capability through "
+                "replicate blank, low-concentration, and quantitation-level measurements."
+            ),
+            "LoB Assessment": (
+                f"The calculated LoB was {_format_measurement(overall_summary['LoB'], 3)}, "
+                f"compared with the user-defined maximum acceptable LoB of "
+                f"{criteria['Maximum LoB']:.3f}."
+            ),
+            "LoD Assessment": (
+                f"The calculated LoD was {_format_measurement(overall_summary['LoD'], 3)}, "
+                f"compared with the user-defined maximum acceptable LoD of "
+                f"{criteria['Maximum LoD']:.3f}."
+            ),
+            "LoQ Assessment": (
+                f"The operational LoQ was {_format_measurement(overall_summary['LoQ'], 3)} "
+                f"with CV% {_format_measurement(overall_summary['Operational LoQ CV%'], 2, '%')}. "
+                f"The target LoQ CV% was {criteria['Target LoQ CV%']:.2f}% and the maximum "
+                f"acceptable LoQ concentration was {criteria['Maximum LoQ Concentration']:.3f}."
+            ),
+            "Data Quality Assessment": quality_findings,
+            "Acceptance Criteria Assessment": (
+                f"The overall preliminary criteria-based decision is {decision}."
+            ),
+            "Overall Conclusion": (
+                f"{conclusion} This interpretation is informational only and does not "
+                "replace formal laboratory review or regulatory approval."
+            ),
+        }
+    )
+
+
+def build_detection_html_report(
+    lob_summary: pd.DataFrame,
+    lod_summary: pd.DataFrame,
+    loq_summary: pd.DataFrame,
+    methodology_table: pd.DataFrame,
+    data_quality_summary: pd.DataFrame,
+    outlier_table: pd.DataFrame,
+    decision_matrix: pd.DataFrame,
+    analyzed_data: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+    visualization_html: dict[str, str] | None = None,
+) -> str:
+    """Build a complete Detection Capability HTML report."""
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    metadata_html = _metadata_to_html(metadata)
+    laboratory_html = _laboratory_documentation_to_html(metadata)
+    formatted_criteria = format_detection_criteria_table(criteria_table)
+    executive_summary_html = detection_executive_summary_html(
+        overall_summary, decision, formatted_criteria
+    )
+    criteria_html = criteria_table_to_badged_html(formatted_criteria)
+    data_quality_html = format_detection_table(data_quality_summary).to_html(index=False)
+    outlier_html = (
+        "<p>No IQR outliers were detected.</p>"
+        if outlier_table.empty
+        else format_detection_table(outlier_table).to_html(index=False)
+    )
+    methodology_html = format_detection_table(methodology_table).to_html(index=False)
+    decision_matrix_html = format_detection_table(decision_matrix).to_html(index=False)
+    figures_html = ""
+    for title, figure_html in (visualization_html or {}).items():
+        figures_html += f"<h3>{escape(title)}</h3>{figure_html}"
+    interpretation_html = "<br><br>".join(
+        escape(paragraph) for paragraph in interpretation.split("\n\n")
+    )
+    notes = escape(str(metadata.get("Notes") or "None documented."))
+    conclusions = escape(str(metadata.get("Conclusions") or "Pending final review."))
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Detection Capability Validation Report</title>
+  <style>
+    body {{ color: #1f2933; font-family: Arial, sans-serif; line-height: 1.5; margin: 40px; }}
+    h1, h2, h3 {{ color: #102a43; }}
+    table {{ border-collapse: collapse; margin: 12px 0 28px; width: 100%; }}
+    th, td {{ border: 1px solid #d9e2ec; padding: 8px; text-align: right; }}
+    th {{ background: #f0f4f8; }}
+    td:first-child, th:first-child {{ text-align: left; }}
+    .summary-grid {{ display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 14px 0 28px; }}
+    .summary-card {{ background: #ffffff; border: 1px solid #d9e2ec; border-radius: 8px; box-shadow: 0 1px 2px rgba(16, 42, 67, 0.04); padding: 14px 16px; }}
+    .summary-label {{ color: #52606d; font-size: 0.78rem; font-weight: bold; margin-bottom: 8px; text-transform: uppercase; }}
+    .summary-value {{ color: #102a43; font-size: 1.25rem; font-weight: bold; }}
+    .note {{ background: #f7f9fb; border-left: 4px solid #2a6f97; padding: 12px 16px; }}
+    .status-badge {{ border-radius: 999px; display: inline-block; font-size: 0.78rem; font-weight: bold; line-height: 1; padding: 6px 10px; }}
+    .status-pass {{ background: #e3f9e5; color: #1f7a1f; }}
+    .status-borderline {{ background: #fff8c5; color: #946200; }}
+    .status-fail {{ background: #ffe3e3; color: #c92a2a; }}
+  </style>
+</head>
+<body>
+  <h1>Detection Capability Validation Report</h1>
+  <p><strong>Generated:</strong> {generated_at}</p>
+
+  <h2>Study Metadata</h2>
+  {metadata_html}
+
+  <h2>Laboratory Documentation</h2>
+  {laboratory_html}
+
+  <h2>Executive Summary</h2>
+  {executive_summary_html}
+  {format_detection_overall_summary(overall_summary).to_html(index=False)}
+
+  <h2>Acceptance Criteria</h2>
+  <p>User-defined preliminary screening criteria: maximum LoB {criteria['Maximum LoB']:.3f}; maximum LoD {criteria['Maximum LoD']:.3f}; target LoQ CV% {criteria['Target LoQ CV%']:.2f}%; maximum LoQ concentration {criteria['Maximum LoQ Concentration']:.3f}; borderline zone {criteria['Borderline Zone']:.2f}%.</p>
+
+  <h2>Calculation Methodology</h2>
+  {methodology_html}
+
+  <h2>Data Quality Assessment</h2>
+  {data_quality_html}
+  <h3>IQR Outlier Review</h3>
+  {outlier_html}
+
+  <h2>LoB Analysis</h2>
+  {format_detection_table(lob_summary).to_html(index=False)}
+
+  <h2>LoD Analysis</h2>
+  {format_detection_table(lod_summary).to_html(index=False)}
+
+  <h2>LoQ Analysis</h2>
+  {format_detection_table(loq_summary).to_html(index=False)}
+
+  <h2>Acceptance Criteria Results</h2>
+  {criteria_html}
+
+  <h2>Detection Capability Decision Matrix</h2>
+  {decision_matrix_html}
+
+  <h2>Interpretation</h2>
+  <p class="note">{interpretation_html}</p>
+
+  <h2>Visualizations</h2>
+  {figures_html}
+
+  <h2>Analyzed Dataset</h2>
+  {format_detection_table(analyzed_data).to_html(index=False)}
+
+  <h2>Analyst Notes</h2>
+  <p>{notes}</p>
+
+  <h2>Preliminary Conclusion</h2>
+  <p>{conclusions}</p>
+
+  <h2>Signature Section</h2>
+  <table>
+    <tr><th>Prepared by</th><td></td><th>Date</th><td></td></tr>
+    <tr><th>Reviewed by</th><td></td><th>Date</th><td></td></tr>
+    <tr><th>Approved by</th><td></td><th>Date</th><td></td></tr>
+  </table>
+</body>
+</html>
+"""
+
+
+def build_detection_pdf_report(
+    lob_summary: pd.DataFrame,
+    lod_summary: pd.DataFrame,
+    loq_summary: pd.DataFrame,
+    methodology_table: pd.DataFrame,
+    data_quality_summary: pd.DataFrame,
+    outlier_table: pd.DataFrame,
+    decision_matrix: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+) -> bytes:
+    """Build a professional PDF Detection Capability report."""
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 12, "Detection Capability Validation Report", ln=True, align="C")
+    pdf.set_font("Arial", "", 11)
+    pdf.cell(0, 8, f"Generated: {generated_at}", ln=True, align="C")
+    pdf.ln(6)
+    pdf.set_font("Arial", "B", 13)
+    pdf.cell(0, 8, f"Overall Decision: {decision}", ln=True)
+    pdf.set_font("Arial", "", 9)
+    for key, value in metadata.items():
+        pdf.multi_cell(0, 5, f"{_pdf_clean(key)}: {_pdf_clean(value or 'Not specified')}")
+
+    pdf.add_page()
+    _pdf_add_table(pdf, "Acceptance Criteria Results", format_detection_criteria_table(criteria_table))
+    _pdf_add_table(pdf, "Executive Summary", format_detection_overall_summary(overall_summary))
+    _pdf_add_table(pdf, "Decision Matrix", format_detection_table(decision_matrix))
+
+    pdf.add_page()
+    _pdf_add_table(pdf, "Calculation Methodology", format_detection_table(methodology_table))
+    _pdf_add_table(pdf, "Data Quality Assessment", format_detection_table(data_quality_summary))
+    if not outlier_table.empty:
+        _pdf_add_table(pdf, "IQR Outlier Review", format_detection_table(outlier_table), max_rows=12)
+
+    pdf.add_page()
+    _pdf_add_table(pdf, "LoB Calculations", format_detection_table(lob_summary))
+    _pdf_add_table(pdf, "LoD Calculations", format_detection_table(lod_summary))
+    _pdf_add_table(pdf, "LoQ Calculations", format_detection_table(loq_summary), max_rows=12)
+
+    pdf.add_page()
+    chart_data = loq_summary.sort_values("Concentration Level")
+    labels = chart_data["Concentration Level"].map(lambda value: f"{value:.3f}").tolist()
+    _pdf_add_line_chart(
+        pdf,
+        "LoQ Precision Curve",
+        labels,
+        chart_data["CV%"].astype(float).tolist(),
+        f"CV% (target {criteria['Target LoQ CV%']:.2f}%)",
+    )
+    _pdf_add_line_chart(
+        pdf,
+        "Recovery vs Concentration",
+        labels,
+        chart_data["Recovery %"].astype(float).tolist(),
+        "Recovery (%)",
+    )
+
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Interpretation", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(0, 6, _pdf_clean(interpretation))
+
+    output = pdf.output(dest="S")
+    if isinstance(output, bytes):
+        return output
+    return output.encode("latin-1")
 
 
 def _pdf_clean(value: object) -> str:
