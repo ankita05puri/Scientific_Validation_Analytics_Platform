@@ -83,8 +83,6 @@ Build a modular scientific validation platform that enables laboratories and ass
 - Additional scientific review visualizations
 - PDF report export
 
-## Planned
-
 ### v0.7.0 - Validation Reports Engine
 
 - Cross-study reporting
@@ -92,6 +90,8 @@ Build a modular scientific validation platform that enables laboratories and ass
 - Executive summary generation
 - Multi-study export
 - PDF generation
+
+## Planned
 
 ### v0.8.0 - DBS Validation Module
 

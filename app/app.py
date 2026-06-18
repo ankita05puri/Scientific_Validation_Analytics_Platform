@@ -6,9 +6,23 @@ from datetime import date
 from html import escape
 from io import StringIO
 from pathlib import Path
+import sys
 
 import pandas as pd
 import streamlit as st
+
+APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = APP_DIR.parent
+for path in (str(APP_DIR), str(PROJECT_ROOT)):
+    while path in sys.path:
+        sys.path.remove(path)
+sys.path.insert(0, str(APP_DIR))
+sys.path.insert(1, str(PROJECT_ROOT))
+loaded_analysis = sys.modules.get("analysis")
+if loaded_analysis is not None:
+    loaded_path = Path(getattr(loaded_analysis, "__file__", "")).resolve()
+    if loaded_path != (APP_DIR / "analysis.py").resolve():
+        del sys.modules["analysis"]
 
 from analysis import (
     assess_accuracy_data_quality,
@@ -111,10 +125,15 @@ from report import (
     status_badge_html,
 )
 from studies import get_study_type_config, get_study_type_names
+from reports import SUPPORTED_STUDIES, generate_validation_package
+from reports.executive_summary import study_counts
+from reports.html_export import export_full_html
+from reports.pdf_export import build_executive_summary_pdf, build_full_pdf
+from reports.report_builder import build_study_section_html
 
 
 APP_TITLE = "Scientific Validation Analytics Platform"
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = PROJECT_ROOT
 SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "hba1c_method_comparison.csv"
 PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_study_hba1c.csv"
 LINEARITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "linearity_study_hba1c.csv"
@@ -478,6 +497,196 @@ def render_dashboard() -> None:
                     """,
                     unsafe_allow_html=True,
                 )
+
+
+def render_validation_reports_workspace() -> None:
+    """Render the consolidated Validation Reports Engine workflow."""
+
+    st.subheader("Validation Reports Engine")
+    st.caption(
+        "Generate a consolidated validation-ready package from completed validation modules."
+    )
+
+    st.markdown("### Validation Report Information")
+    row_1 = st.columns(3)
+    with row_1[0]:
+        project_name = st.text_input("Validation Project Name", value="HbA1c Analytical Validation Package")
+    with row_1[1]:
+        analyst = st.text_input("Analyst")
+    with row_1[2]:
+        study_date = st.date_input("Study Date", value=date.today())
+
+    row_2 = st.columns(3)
+    with row_2[0]:
+        instrument = st.text_input("Instrument")
+    with row_2[1]:
+        assay = st.text_input("Assay / Biomarker", value="HbA1c")
+    with row_2[2]:
+        specimen_type = st.text_input("Specimen Type", value="Whole Blood")
+
+    row_3 = st.columns(3)
+    with row_3[0]:
+        protocol_number = st.text_input("Protocol Number")
+    with row_3[1]:
+        reviewer = st.text_input("Reviewer")
+    with row_3[2]:
+        laboratory_name = st.text_input("Laboratory Name")
+
+    row_4 = st.columns(3)
+    with row_4[0]:
+        report_version = st.text_input("Report Version", value="v0.7.1")
+
+    project_metadata = {
+        "Validation Project Name": project_name,
+        "Analyst": analyst,
+        "Study Date": study_date.isoformat(),
+        "Instrument": instrument,
+        "Assay / Biomarker": assay,
+        "Specimen Type": specimen_type,
+        "Protocol Number": protocol_number,
+        "Reviewer": reviewer,
+        "Laboratory Name": laboratory_name,
+        "Report Version": report_version,
+    }
+
+    st.markdown("### Select Completed Studies")
+    selected_studies: list[str] = []
+    cols = st.columns(3)
+    for index, study_name in enumerate(SUPPORTED_STUDIES):
+        with cols[index % 3]:
+            if st.checkbox(study_name, value=True):
+                selected_studies.append(study_name)
+
+    if st.button("Generate Consolidated Validation Package", type="primary"):
+        try:
+            package = generate_validation_package(
+                selected_studies=selected_studies,
+                root_dir=ROOT_DIR,
+                project_metadata=project_metadata,
+            )
+        except Exception as exc:
+            st.error(f"Validation package could not be generated: {exc}")
+            st.stop()
+
+        counts = study_counts(package.studies)
+        st.markdown("### Executive Summary")
+        st.info(package.executive_narrative)
+        first_row = st.columns(4)
+        with first_row[0]:
+            render_metric_card("Overall Validation Status", package.overall_status, status=package.overall_status)
+        with first_row[1]:
+            render_metric_card("Studies Completed", str(counts["Number completed"]))
+        with first_row[2]:
+            render_metric_card("Studies Passed", str(counts["Number passed"]))
+        with first_row[3]:
+            render_metric_card("Studies Failed", str(counts["Number failed"]))
+
+        st.markdown("### Validation Risk Summary")
+        st.dataframe(package.risk_summary, width="stretch")
+
+        st.markdown("### Included Studies")
+        for row_start in range(0, len(package.studies), 3):
+            card_columns = st.columns(3)
+            for column, study in zip(card_columns, package.studies[row_start : row_start + 3]):
+                with column:
+                    st.markdown(
+                        f"""
+                        <div class="svap-card">
+                          <div class="svap-card-label">{escape(study.study_type)}</div>
+                          <div class="svap-card-value">{status_badge_html(study.decision)}</div>
+                          <div class="svap-card-subtext">{escape(study.study_name)}<br>{escape(study.date)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+        st.markdown("### Validation Coverage Matrix")
+        st.caption(f"Overall validation completeness: {package.completeness_percent:.1f}%")
+        st.dataframe(package.coverage_matrix, width="stretch")
+
+        st.markdown("### Cross-Study Validation Summary")
+        st.dataframe(package.validation_matrix, width="stretch")
+
+        st.markdown("### Quality Assurance Section")
+        st.dataframe(package.qa_findings, width="stretch")
+
+        st.markdown("### Individual Study Sections")
+        for study in package.studies:
+            with st.expander(f"{study.study_type} - {study.decision}", expanded=False):
+                st.markdown("**Study Traceability**")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {"Traceability Element": "Study Name", "Value": study.study_name},
+                            {"Traceability Element": "Analysis Version", "Value": study.analysis_version},
+                            {"Traceability Element": "Source Dataset", "Value": study.source_dataset},
+                            {"Traceability Element": "Analysis Timestamp", "Value": study.analysis_timestamp},
+                            {"Traceability Element": "Sample Count", "Value": study.sample_count},
+                            {"Traceability Element": "Excluded Samples", "Value": study.excluded_samples},
+                        ]
+                    ),
+                    width="stretch",
+                )
+                st.markdown("**Key Findings**")
+                st.dataframe(study.key_findings, width="stretch")
+                st.markdown("**Acceptance Criteria Assessment**")
+                render_badged_criteria_table(study.acceptance_criteria)
+                st.markdown("**Statistical Methods**")
+                st.write(study.statistical_methods)
+                st.markdown("**Scientific Interpretation**")
+                st.info(study.interpretation)
+                st.markdown("**Conclusion**")
+                st.write(study.conclusion)
+                st.download_button(
+                    f"Download {study.study_type} Section HTML",
+                    data=build_study_section_html(study).encode("utf-8"),
+                    file_name=f"{study.study_type.lower().replace(' ', '_')}_study_section.html",
+                    mime="text/html",
+                )
+
+        st.markdown("### Final Validation Conclusion")
+        st.write(package.decision_justification)
+        st.info(package.final_conclusion)
+
+        st.markdown("### Reviewer Sign-Off")
+        st.markdown(
+            """
+            Prepared By: ________________________________
+
+            Reviewed By: ________________________________
+
+            Approved By: ________________________________
+
+            Approval Date: ______________________________
+            """
+        )
+
+        full_html = export_full_html(package, SUPPORTED_STUDIES)
+        full_pdf = build_full_pdf(package)
+        executive_pdf = build_executive_summary_pdf(package)
+
+        export_cols = st.columns(3)
+        with export_cols[0]:
+            st.download_button(
+                "Download Full Validation Package HTML",
+                data=full_html.encode("utf-8"),
+                file_name="validation_package.html",
+                mime="text/html",
+            )
+        with export_cols[1]:
+            st.download_button(
+                "Download Full Validation Package PDF",
+                data=full_pdf,
+                file_name="validation_package.pdf",
+                mime="application/pdf",
+            )
+        with export_cols[2]:
+            st.download_button(
+                "Download Executive Summary PDF",
+                data=executive_pdf,
+                file_name="validation_executive_summary.pdf",
+                mime="application/pdf",
+            )
 
 
 def render_study_type_selector() -> str:
@@ -2631,8 +2840,7 @@ def main() -> None:
         st.stop()
 
     if page == "Validation Reports":
-        st.subheader("Validation Reports")
-        st.info("Report archive and report management workflows are planned for a future module.")
+        render_validation_reports_workspace()
         st.stop()
 
     study_type = render_study_type_selector()
