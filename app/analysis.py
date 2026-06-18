@@ -50,6 +50,46 @@ class LinearityResult:
     include_column: str | None = None
 
 
+@dataclass(frozen=True)
+class StabilityResult:
+    """Container for cleaned stability data and timepoint summaries."""
+
+    analyzed_data: pd.DataFrame
+    stability_summary: pd.DataFrame
+    timepoint_summary: pd.DataFrame
+    bias_summary: pd.DataFrame
+    recovery_summary: pd.DataFrame
+    condition_comparison: pd.DataFrame
+    outlier_table: pd.DataFrame
+    overall_summary: dict[str, float | str]
+    sample_id_column: str
+    timepoint_column: str
+    result_column: str
+    storage_condition_column: str | None = None
+    units_column: str | None = None
+    replicate_column: str | None = None
+    include_column: str | None = None
+
+
+@dataclass(frozen=True)
+class AccuracyResult:
+    """Container for cleaned accuracy data and observed-vs-expected summaries."""
+
+    analyzed_data: pd.DataFrame
+    accuracy_summary: pd.DataFrame
+    bias_summary: pd.DataFrame
+    recovery_summary: pd.DataFrame
+    worst_case_summary: dict[str, float | str]
+    overall_summary: dict[str, float | str]
+    expected_column: str
+    observed_column: str
+    level_column: str
+    sample_id_column: str
+    units_column: str | None = None
+    replicate_column: str | None = None
+    include_column: str | None = None
+
+
 def _safe_float(value: float) -> float:
     """Return a plain float, preserving missing values as NaN."""
 
@@ -770,5 +810,405 @@ def run_linearity_study(
         level_column=level_column,
         replicate_column=replicate_column,
         units_column=units_column,
+        include_column=include_column,
+    )
+
+
+def _timepoint_sort_key(value: object) -> tuple[int, float, str]:
+    """Return a stable sort key that keeps baseline first, then numeric timepoints."""
+
+    label = str(value).strip()
+    normalized = label.lower()
+    if normalized in {"baseline", "base", "day 0", "d0", "t0", "0"}:
+        return (0, 0.0, label)
+
+    digits = "".join(character if character.isdigit() or character == "." else " " for character in normalized)
+    values = [part for part in digits.split() if part]
+    if values:
+        return (1, float(values[0]), label)
+    return (2, 0.0, label)
+
+
+def _is_baseline_timepoint(value: object) -> bool:
+    """Return whether a timepoint label represents baseline."""
+
+    return str(value).strip().lower() in {"baseline", "base", "day 0", "d0", "t0", "0"}
+
+
+def prepare_stability_data(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    timepoint_column: str,
+    result_column: str,
+    storage_condition_column: str | None = None,
+    units_column: str | None = None,
+    replicate_column: str | None = None,
+    include_column: str | None = None,
+) -> pd.DataFrame:
+    """Clean stability data and calculate row-level change from sample baseline."""
+
+    selected_columns = [sample_id_column, timepoint_column, result_column]
+    optional_columns = [
+        storage_condition_column,
+        units_column,
+        replicate_column,
+        include_column,
+    ]
+    selected_columns.extend([column for column in optional_columns if column])
+    selected_columns = list(dict.fromkeys(selected_columns))
+
+    stability_data = data[selected_columns].copy()
+    rename_map = {
+        sample_id_column: "Sample ID",
+        timepoint_column: "Timepoint",
+        result_column: "Result",
+    }
+    if storage_condition_column:
+        rename_map[storage_condition_column] = "Storage Condition"
+    if units_column:
+        rename_map[units_column] = "Units"
+    if replicate_column:
+        rename_map[replicate_column] = "Replicate"
+    if include_column:
+        rename_map[include_column] = "Include in Analysis"
+
+    stability_data = stability_data.rename(columns=rename_map)
+    if "Include in Analysis" in stability_data.columns:
+        include_values = (
+            stability_data["Include in Analysis"].astype(str).str.strip().str.lower()
+        )
+        stability_data = stability_data[include_values.isin(["yes", "y", "true", "1"])]
+
+    stability_data["Result"] = pd.to_numeric(stability_data["Result"], errors="coerce")
+    if "Replicate" in stability_data.columns:
+        stability_data["Replicate"] = pd.to_numeric(
+            stability_data["Replicate"], errors="coerce"
+        )
+    stability_data = stability_data.dropna(
+        subset=["Sample ID", "Timepoint", "Result"]
+    ).reset_index(drop=True)
+    if stability_data.empty:
+        raise ValueError("No valid stability rows are available for analysis.")
+
+    stability_data["Is Baseline"] = stability_data["Timepoint"].apply(_is_baseline_timepoint)
+    baseline_means = (
+        stability_data[stability_data["Is Baseline"]]
+        .groupby("Sample ID", dropna=False)["Result"]
+        .mean()
+        .rename("Baseline Result")
+    )
+    if baseline_means.empty:
+        raise ValueError("At least one baseline timepoint is required for stability analysis.")
+
+    stability_data = stability_data.merge(baseline_means, on="Sample ID", how="left")
+    stability_data = stability_data.dropna(subset=["Baseline Result"]).reset_index(drop=True)
+    if stability_data.empty:
+        raise ValueError("No analyzed rows have a matching sample baseline.")
+
+    stability_data["Timepoint Sort"] = stability_data["Timepoint"].map(_timepoint_sort_key)
+    stability_data["Difference"] = stability_data["Result"] - stability_data["Baseline Result"]
+    stability_data["Bias"] = stability_data["Difference"]
+    stability_data["Percent Change"] = np.where(
+        stability_data["Baseline Result"] != 0,
+        (stability_data["Difference"] / stability_data["Baseline Result"]) * 100,
+        np.nan,
+    )
+    stability_data["Percent Recovery"] = np.where(
+        stability_data["Baseline Result"] != 0,
+        (stability_data["Result"] / stability_data["Baseline Result"]) * 100,
+        np.nan,
+    )
+    return stability_data.sort_values(
+        ["Timepoint Sort", "Sample ID", "Replicate"] if "Replicate" in stability_data.columns else ["Timepoint Sort", "Sample ID"]
+    ).reset_index(drop=True)
+
+
+def calculate_stability_summary(
+    analyzed_data: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float | str]]:
+    """Calculate stability summaries by timepoint."""
+
+    group_columns = ["Timepoint", "Timepoint Sort"]
+    if "Storage Condition" in analyzed_data.columns:
+        group_columns.insert(0, "Storage Condition")
+
+    timepoint_summary = (
+        analyzed_data.groupby(group_columns, dropna=False)
+        .agg(
+            N=("Result", "count"),
+            **{
+                "Baseline Mean": ("Baseline Result", "mean"),
+                "Timepoint Mean": ("Result", "mean"),
+                "Mean Difference": ("Difference", "mean"),
+                "Mean Absolute Difference": ("Difference", lambda series: series.abs().mean()),
+                "Mean Percent Change": ("Percent Change", "mean"),
+                "Mean Absolute Percent Change": ("Percent Change", lambda series: series.abs().mean()),
+                "Percent Recovery": ("Percent Recovery", "mean"),
+                "Minimum Recovery": ("Percent Recovery", "min"),
+                "Maximum Recovery": ("Percent Recovery", "max"),
+                "Bias": ("Bias", "mean"),
+                "Maximum Absolute Bias": ("Bias", lambda series: series.abs().max()),
+            },
+        )
+        .reset_index()
+        .sort_values("Timepoint Sort")
+        .reset_index(drop=True)
+    )
+    timepoint_summary["Absolute Difference"] = timepoint_summary["Mean Difference"].abs()
+
+    stability_summary = timepoint_summary[
+        [
+            *[column for column in ["Storage Condition"] if column in timepoint_summary.columns],
+            "Timepoint",
+            "N",
+            "Baseline Mean",
+            "Timepoint Mean",
+            "Absolute Difference",
+            "Mean Percent Change",
+            "Percent Recovery",
+            "Bias",
+        ]
+    ].copy()
+    bias_summary = timepoint_summary[
+        [
+            *[column for column in ["Storage Condition"] if column in timepoint_summary.columns],
+            "Timepoint",
+            "Bias",
+            "Maximum Absolute Bias",
+            "Mean Percent Change",
+            "Mean Absolute Percent Change",
+        ]
+    ].copy()
+    recovery_summary = timepoint_summary[
+        [
+            *[column for column in ["Storage Condition"] if column in timepoint_summary.columns],
+            "Timepoint",
+            "Percent Recovery",
+            "Minimum Recovery",
+            "Maximum Recovery",
+        ]
+    ].copy()
+
+    non_baseline = analyzed_data[~analyzed_data["Is Baseline"]]
+    change_source = non_baseline if not non_baseline.empty else analyzed_data
+    max_change_index = change_source["Percent Change"].abs().idxmax()
+    max_change_row = change_source.loc[max_change_index]
+    overall_summary = {
+        "N": int(len(analyzed_data)),
+        "Baseline Mean": _safe_float(analyzed_data.loc[analyzed_data["Is Baseline"], "Result"].mean()),
+        "Maximum Observed Change": _safe_float(change_source["Percent Change"].abs().max()),
+        "Maximum Absolute Bias": _safe_float(change_source["Bias"].abs().max()),
+        "Minimum Recovery": _safe_float(change_source["Percent Recovery"].min()),
+        "Maximum Recovery": _safe_float(change_source["Percent Recovery"].max()),
+        "Worst Timepoint": str(max_change_row["Timepoint"]),
+        "Worst Sample ID": str(max_change_row["Sample ID"]),
+        "Worst Storage Condition": str(max_change_row.get("Storage Condition", "Not specified")),
+        "Average Change by Timepoint": _safe_float(timepoint_summary["Mean Absolute Percent Change"].mean()),
+    }
+
+    return (
+        stability_summary.reset_index(drop=True),
+        timepoint_summary.drop(columns=["Timepoint Sort"]).reset_index(drop=True),
+        bias_summary.reset_index(drop=True),
+        recovery_summary.reset_index(drop=True),
+        overall_summary,
+    )
+
+
+def calculate_storage_condition_comparison(timepoint_summary: pd.DataFrame) -> pd.DataFrame:
+    """Compare stability metrics between storage conditions at each timepoint."""
+
+    if "Storage Condition" not in timepoint_summary.columns:
+        return pd.DataFrame()
+
+    conditions = list(dict.fromkeys(timepoint_summary["Storage Condition"].dropna().astype(str)))
+    if len(conditions) < 2:
+        return pd.DataFrame()
+
+    preferred_reference = "Refrigerated" if "Refrigerated" in conditions else conditions[0]
+    preferred_candidate = (
+        "Room Temperature"
+        if "Room Temperature" in conditions and preferred_reference != "Room Temperature"
+        else next(condition for condition in conditions if condition != preferred_reference)
+    )
+
+    rows = []
+    for timepoint, group in timepoint_summary.groupby("Timepoint", sort=False):
+        indexed = group.set_index("Storage Condition")
+        if preferred_reference not in indexed.index or preferred_candidate not in indexed.index:
+            continue
+        reference = indexed.loc[preferred_reference]
+        candidate = indexed.loc[preferred_candidate]
+        rows.append(
+            {
+                "Timepoint": timepoint,
+                f"{preferred_reference} Mean": reference["Timepoint Mean"],
+                f"{preferred_candidate} Mean": candidate["Timepoint Mean"],
+                "Difference": candidate["Timepoint Mean"] - reference["Timepoint Mean"],
+                f"{preferred_reference} Recovery": reference["Percent Recovery"],
+                f"{preferred_candidate} Recovery": candidate["Percent Recovery"],
+                "Recovery Difference": candidate["Percent Recovery"] - reference["Percent Recovery"],
+                f"{preferred_reference} Percent Change": reference["Mean Percent Change"],
+                f"{preferred_candidate} Percent Change": candidate["Mean Percent Change"],
+                "Percent Change Difference": candidate["Mean Percent Change"] - reference["Mean Percent Change"],
+                "Comparison": f"{preferred_candidate} - {preferred_reference}",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def identify_stability_outliers(analyzed_data: pd.DataFrame) -> pd.DataFrame:
+    """Identify sample/timepoint rows contributing most to observed instability."""
+
+    non_baseline = analyzed_data[~analyzed_data["Is Baseline"]].copy()
+    if non_baseline.empty:
+        return pd.DataFrame()
+
+    study_average_change = non_baseline["Percent Change"].abs().mean()
+    threshold = study_average_change * 1.5
+    columns = ["Sample ID", "Timepoint", "Percent Change", "Percent Recovery", "Bias"]
+    if "Storage Condition" in non_baseline.columns:
+        columns.insert(1, "Storage Condition")
+
+    outliers = non_baseline[columns].copy()
+    outliers["Largest Absolute Change"] = outliers["Percent Change"].abs()
+    outliers["Largest Bias"] = outliers["Bias"].abs()
+    outliers["Lowest Recovery"] = outliers["Percent Recovery"]
+    outliers["Potential Outlier"] = outliers["Largest Absolute Change"] > threshold
+    outliers["Severity Score"] = outliers["Largest Absolute Change"]
+    return (
+        outliers.sort_values(["Potential Outlier", "Severity Score"], ascending=[False, False])
+        .reset_index(drop=True)
+    )
+
+
+def evaluate_stability_criteria(
+    overall_summary: dict[str, float | str],
+    max_percent_change: float,
+    min_recovery: float,
+    max_abs_bias: float,
+    borderline_zone: float,
+) -> dict[str, object]:
+    """Evaluate user-defined preliminary stability acceptance criteria."""
+
+    checks = []
+
+    def max_threshold_check(label: str, observed: float, limit: float, unit: str, zone: float) -> dict[str, object]:
+        caution_floor = max(0.0, limit - zone)
+        return {
+            "Criterion": label,
+            "Observed": observed,
+            "Acceptance Limit": f"< {limit:g}{unit}",
+            "Met": not pd.isna(observed) and observed <= caution_floor,
+            "Borderline": (
+                not pd.isna(observed)
+                and observed > caution_floor
+                and observed < limit
+            ),
+        }
+
+    def min_threshold_check(label: str, observed: float, limit: float, unit: str, zone: float) -> dict[str, object]:
+        caution_ceiling = limit + zone
+        return {
+            "Criterion": label,
+            "Observed": observed,
+            "Acceptance Limit": f"> {limit:g}{unit}",
+            "Met": not pd.isna(observed) and observed >= caution_ceiling,
+            "Borderline": (
+                not pd.isna(observed)
+                and observed > limit
+                and observed < caution_ceiling
+            ),
+        }
+
+    max_change = overall_summary.get("Maximum Observed Change", np.nan)
+    checks.append(
+        max_threshold_check(
+            "Maximum absolute percent change from baseline",
+            max_change,
+            max_percent_change,
+            "%",
+            borderline_zone,
+        )
+    )
+
+    observed_min_recovery = overall_summary.get("Minimum Recovery", np.nan)
+    checks.append(
+        min_threshold_check(
+            "Minimum recovery",
+            observed_min_recovery,
+            min_recovery,
+            "%",
+            borderline_zone,
+        )
+    )
+
+    observed_max_bias = overall_summary.get("Maximum Absolute Bias", np.nan)
+    bias_zone = max_abs_bias * (borderline_zone / 100)
+    checks.append(
+        max_threshold_check(
+            "Maximum absolute bias",
+            observed_max_bias,
+            max_abs_bias,
+            "",
+            bias_zone,
+        )
+    )
+
+    if all(check["Met"] for check in checks):
+        decision = "PASS"
+    elif all(check["Met"] or check["Borderline"] for check in checks):
+        decision = "PASS WITH CAUTION"
+    else:
+        decision = "FAIL"
+    return {"decision": decision, "checks": checks}
+
+
+def run_stability_study(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    timepoint_column: str,
+    result_column: str,
+    storage_condition_column: str | None = None,
+    units_column: str | None = None,
+    replicate_column: str | None = None,
+    include_column: str | None = None,
+) -> StabilityResult:
+    """Run the complete stability study workflow."""
+
+    analyzed_data = prepare_stability_data(
+        data=data,
+        sample_id_column=sample_id_column,
+        timepoint_column=timepoint_column,
+        result_column=result_column,
+        storage_condition_column=storage_condition_column,
+        units_column=units_column,
+        replicate_column=replicate_column,
+        include_column=include_column,
+    )
+    (
+        stability_summary,
+        timepoint_summary,
+        bias_summary,
+        recovery_summary,
+        overall_summary,
+    ) = calculate_stability_summary(analyzed_data)
+    condition_comparison = calculate_storage_condition_comparison(timepoint_summary)
+    outlier_table = identify_stability_outliers(analyzed_data)
+    return StabilityResult(
+        analyzed_data=analyzed_data,
+        stability_summary=stability_summary,
+        timepoint_summary=timepoint_summary,
+        bias_summary=bias_summary,
+        recovery_summary=recovery_summary,
+        condition_comparison=condition_comparison,
+        outlier_table=outlier_table,
+        overall_summary=overall_summary,
+        sample_id_column=sample_id_column,
+        timepoint_column=timepoint_column,
+        result_column=result_column,
+        storage_condition_column=storage_condition_column,
+        units_column=units_column,
+        replicate_column=replicate_column,
         include_column=include_column,
     )

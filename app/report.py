@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from html import escape
+from io import BytesIO
 
 import pandas as pd
+from fpdf import FPDF
 
 
 SUMMARY_COLUMNS = [
@@ -159,8 +161,126 @@ def format_linearity_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFram
     formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
     if "Pass/Fail Status" in formatted.columns:
         formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
+            {"BORDERLINE": "PASS WITH CAUTION"}
+        )
     if "Borderline Status" in formatted.columns:
         formatted["Borderline Status"] = formatted["Borderline Status"].map(
+            lambda value: "YES" if bool(value) else "NO"
+        )
+    return formatted
+
+
+def format_stability_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format stability summary tables for display and export."""
+
+    formatted = table.copy()
+    if "N" in formatted.columns:
+        formatted["N"] = formatted["N"].map(lambda value: f"{int(value)}")
+    two_decimal_columns = [
+        "Baseline Mean",
+        "Timepoint Mean",
+        "Absolute Difference",
+        "Mean Difference",
+        "Mean Absolute Difference",
+        "Bias",
+        "Maximum Absolute Bias",
+    ]
+    for column in two_decimal_columns:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2f}"
+            )
+    percent_columns = [
+        "Mean Percent Change",
+        "Mean Absolute Percent Change",
+        "Percent Recovery",
+        "Minimum Recovery",
+        "Maximum Recovery",
+    ]
+    for column in percent_columns:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2f}%"
+            )
+    return formatted
+
+
+def format_stability_overall_summary(summary: dict[str, float | str]) -> pd.DataFrame:
+    """Format overall stability summary as a two-column table."""
+
+    rows = [
+        ("N", f"{int(summary['N'])}"),
+        ("Baseline Mean", f"{summary['Baseline Mean']:.2f}"),
+        ("Maximum Observed Change", f"{summary['Maximum Observed Change']:.2f}%"),
+        ("Maximum Absolute Bias", f"{summary['Maximum Absolute Bias']:.2f}"),
+        ("Minimum Recovery", f"{summary['Minimum Recovery']:.2f}%"),
+        ("Maximum Recovery", f"{summary['Maximum Recovery']:.2f}%"),
+        ("Worst Timepoint", str(summary["Worst Timepoint"])),
+        ("Worst Sample ID", str(summary["Worst Sample ID"])),
+        ("Average Change by Timepoint", f"{summary['Average Change by Timepoint']:.2f}%"),
+    ]
+    return pd.DataFrame(rows, columns=["Metric", "Value"])
+
+
+def format_stability_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFrame:
+    """Format stability acceptance criteria result values."""
+
+    formatted = criteria_table.copy()
+
+    def format_observed(row: pd.Series) -> str:
+        value = row["Observed Value"]
+        if pd.isna(value):
+            return ""
+        criterion = str(row["Criterion"]).lower()
+        if "recovery" in criterion or "percent change" in criterion:
+            return f"{value:.2f}%"
+        return f"{value:.2f}"
+
+    formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
+    if "Pass/Fail Status" in formatted.columns:
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
+            {"BORDERLINE": "PASS WITH CAUTION"}
+        )
+    if "Borderline Status" in formatted.columns:
+        formatted["Borderline Status"] = formatted["Borderline Status"].map(
+            lambda value: "YES" if bool(value) else "NO"
+        )
+    return formatted
+
+
+def format_storage_condition_comparison_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format storage condition comparison values."""
+
+    formatted = table.copy()
+    for column in formatted.columns:
+        if column == "Timepoint" or column == "Comparison":
+            continue
+        if pd.api.types.is_numeric_dtype(formatted[column]):
+            suffix = "%" if "Recovery" in column or "Percent Change" in column else ""
+            formatted[column] = formatted[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2f}{suffix}"
+            )
+    return formatted
+
+
+def format_stability_outlier_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format potential stability outlier rows."""
+
+    formatted = table.copy()
+    for column in ["Percent Change", "Percent Recovery"]:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2f}%"
+            )
+    for column in ["Bias", "Largest Absolute Change", "Largest Bias", "Lowest Recovery", "Severity Score"]:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2f}"
+            )
+    if "Potential Outlier" in formatted.columns:
+        formatted["Potential Outlier"] = formatted["Potential Outlier"].map(
             lambda value: "YES" if bool(value) else "NO"
         )
     return formatted
@@ -172,7 +292,7 @@ def get_status_class(status: str) -> str:
     normalized = str(status).strip().lower()
     if normalized in {"pass", "passed"}:
         return "pass"
-    if normalized in {"borderline", "review"}:
+    if normalized in {"borderline", "review", "pass with caution"}:
         return "borderline"
     return "fail"
 
@@ -294,6 +414,56 @@ def linearity_worst_case_html(level_summary: pd.DataFrame) -> str:
       </p>
     </div>
     """
+
+
+def build_stability_executive_summary(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> dict[str, str]:
+    """Build display values for stability executive summary cards."""
+
+    borderline_count = 0
+    failed_count = 0
+    if criteria_table is not None and not criteria_table.empty:
+        status_values = criteria_table["Pass/Fail Status"].astype(str).str.upper()
+        borderline_count = int((status_values == "PASS WITH CAUTION").sum())
+        failed_count = int((status_values == "FAIL").sum())
+
+    return {
+        "Overall Decision": decision,
+        "Maximum Observed Change": f"{overall_summary['Maximum Observed Change']:.2f}%",
+        "Minimum Recovery": f"{overall_summary['Minimum Recovery']:.2f}%",
+        "Maximum Absolute Bias": f"{overall_summary['Maximum Absolute Bias']:.2f}",
+        "Worst Timepoint": str(overall_summary["Worst Timepoint"]),
+        "Worst Storage Condition": str(overall_summary.get("Worst Storage Condition", "Not specified")),
+        "Borderline Criteria": str(borderline_count),
+        "Failed Criteria": str(failed_count),
+    }
+
+
+def stability_executive_summary_html(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> str:
+    """Render stability executive summary cards for the HTML report."""
+
+    summary_values = build_stability_executive_summary(
+        overall_summary, decision, criteria_table
+    )
+    cards = []
+    for label, value in summary_values.items():
+        value_html = status_badge_html(value) if label == "Overall Decision" else escape(value)
+        cards.append(
+            f"""
+            <div class="summary-card">
+              <div class="summary-label">{escape(label)}</div>
+              <div class="summary-value">{value_html}</div>
+            </div>
+            """
+        )
+    return '<div class="summary-grid">' + "".join(cards) + "</div>"
 
 
 def generate_interpretation(
@@ -461,6 +631,110 @@ def generate_linearity_interpretation(
         f"to {criteria['Recovery Upper Limit']:.1f}%. Based on the evaluated criteria, "
         f"the study {decision_text}; the overall preliminary decision is {decision}. "
         "This interpretation is informational only and does not replace formal laboratory approval."
+    )
+
+
+def generate_stability_interpretation(
+    overall_summary: dict[str, float | str],
+    timepoint_summary: pd.DataFrame,
+    criteria: dict[str, float],
+    decision: str,
+    metadata: dict[str, object],
+) -> str:
+    """Generate a professional interpretation for stability study results."""
+
+    biomarker = metadata.get("Assay / Biomarker") or "the selected assay"
+    study_name = metadata.get("Study Name") or "this stability study"
+    timepoints = list(dict.fromkeys(str(value) for value in timepoint_summary["Timepoint"].tolist()))
+    timepoint_text = ", ".join(timepoints)
+    max_change = overall_summary["Maximum Observed Change"]
+    min_recovery = overall_summary["Minimum Recovery"]
+    max_bias = overall_summary["Maximum Absolute Bias"]
+    worst_timepoint = overall_summary["Worst Timepoint"]
+    worst_sample = overall_summary["Worst Sample ID"]
+    if decision == "PASS":
+        conclusion = "meets preliminary stability acceptance requirements"
+    elif decision == "PASS WITH CAUTION":
+        conclusion = "requires review against preliminary stability acceptance requirements"
+    else:
+        conclusion = "does not meet preliminary stability acceptance requirements"
+
+    return (
+        f"For {study_name}, {biomarker} stability was evaluated across the analyzed "
+        f"timepoints ({timepoint_text}) relative to baseline measurements. The largest "
+        f"observed absolute percent change was {max_change:.2f}% at {worst_timepoint} "
+        f"for sample {worst_sample}, compared with the user-defined limit of "
+        f"{criteria['Maximum Percent Change']:.2f}%. Minimum observed recovery was "
+        f"{min_recovery:.2f}% against the minimum recovery criterion of "
+        f"{criteria['Minimum Recovery']:.2f}%, and maximum absolute bias was "
+        f"{max_bias:.2f} against the limit of {criteria['Maximum Absolute Bias']:.2f}. "
+        f"Timepoint trends were evaluated for percent change, recovery, and bias. "
+        f"Based on the preliminary screening criteria, the study {conclusion}; the "
+        f"overall preliminary decision is {decision}. This interpretation is "
+        "informational only and does not replace formal laboratory approval."
+    )
+
+
+def generate_storage_condition_comparison_interpretation(
+    comparison_table: pd.DataFrame,
+) -> str:
+    """Generate interpretation for direct storage condition comparison."""
+
+    if comparison_table.empty:
+        return "Storage condition comparison was not available because fewer than two storage conditions were present."
+
+    final_row = comparison_table.iloc[-1]
+    comparison = str(final_row.get("Comparison", "condition difference"))
+    mean_difference = final_row["Difference"]
+    recovery_difference = final_row["Recovery Difference"]
+    percent_change_difference = final_row["Percent Change Difference"]
+    if abs(mean_difference) < 0.05 and abs(percent_change_difference) < 1:
+        direction = "similar stability performance"
+    elif percent_change_difference < 0:
+        direction = "lower recovery and greater negative change for the candidate condition"
+    else:
+        direction = "higher recovery or less negative change for the candidate condition"
+
+    return (
+        f"Direct storage-condition comparison was calculated as {comparison}. At the "
+        f"latest evaluated timepoint, the mean result difference was {mean_difference:.2f}, "
+        f"recovery difference was {recovery_difference:.2f}%, and percent-change "
+        f"difference was {percent_change_difference:.2f}%. The comparison suggests "
+        f"{direction}."
+    )
+
+
+def generate_stability_risk_assessment(
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    criteria: dict[str, float],
+) -> str:
+    """Generate a stability risk assessment narrative."""
+
+    max_change = overall_summary["Maximum Observed Change"]
+    minimum_recovery = overall_summary["Minimum Recovery"]
+    max_bias = overall_summary["Maximum Absolute Bias"]
+    status_values = criteria_table["Pass/Fail Status"].astype(str).str.upper()
+    caution_count = int((status_values == "PASS WITH CAUTION").sum())
+    fail_count = int((status_values == "FAIL").sum())
+
+    if fail_count > 0:
+        risk = "High Risk"
+        summary = "One or more predefined criteria failed, indicating potential instability under the evaluated conditions."
+    elif caution_count > 0:
+        risk = "Moderate Risk"
+        summary = "All criteria remained within allowable limits, but at least one result approached a predefined threshold."
+    elif max_change <= criteria["Maximum Percent Change"] * 0.5 and minimum_recovery >= 98:
+        risk = "Low Risk"
+        summary = "The assay demonstrated minimal degradation and strong recovery throughout the evaluated period."
+    else:
+        risk = "Low Risk"
+        summary = "The assay demonstrated acceptable stability throughout the evaluated period."
+
+    return (
+        f"{risk}: {summary} Maximum observed change was {max_change:.2f}%, "
+        f"minimum recovery was {minimum_recovery:.2f}%, and maximum absolute bias was "
+        f"{max_bias:.2f}. Borderline findings: {caution_count}; failed criteria: {fail_count}."
     )
 
 
@@ -1054,3 +1328,387 @@ def build_linearity_html_report(
 </body>
 </html>
 """
+
+
+def build_stability_html_report(
+    stability_summary: pd.DataFrame,
+    timepoint_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    condition_comparison: pd.DataFrame,
+    outlier_table: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    risk_assessment: str,
+    condition_interpretation: str,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+    visualization_html: dict[str, str] | None = None,
+) -> str:
+    """Build a stability study validation summary report."""
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    metadata_html = _metadata_to_html(metadata)
+    laboratory_html = _laboratory_documentation_to_html(metadata)
+    formatted_criteria_table = format_stability_criteria_table(criteria_table)
+    executive_summary_html = stability_executive_summary_html(
+        overall_summary, decision, formatted_criteria_table
+    )
+    stability_html = format_stability_table(stability_summary).to_html(index=False)
+    timepoint_html = format_stability_table(timepoint_summary).to_html(index=False)
+    recovery_html = format_stability_table(recovery_summary).to_html(index=False)
+    bias_html = format_stability_table(bias_summary).to_html(index=False)
+    comparison_html = (
+        "<p>Storage condition comparison was not available.</p>"
+        if condition_comparison.empty
+        else format_storage_condition_comparison_table(condition_comparison).to_html(index=False)
+    )
+    outlier_html = (
+        "<p>No potential stability outliers were available.</p>"
+        if outlier_table.empty
+        else format_stability_outlier_table(outlier_table).to_html(index=False)
+    )
+    overall_html = format_stability_overall_summary(overall_summary).to_html(index=False)
+    criteria_html = criteria_table_to_badged_html(formatted_criteria_table)
+    figures_html = ""
+    for title, figure_html in (visualization_html or {}).items():
+        figures_html += f"<h3>{escape(title)}</h3>{figure_html}"
+
+    notes = escape(str(metadata.get("Notes") or "None documented."))
+    deviations = escape(str(metadata.get("Deviations") or "None documented."))
+    conclusions = escape(str(metadata.get("Conclusions") or "Pending final review."))
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Stability Study Validation Report</title>
+  <style>
+    body {{
+      color: #1f2933;
+      font-family: Arial, sans-serif;
+      line-height: 1.5;
+      margin: 40px;
+    }}
+    h1, h2, h3 {{ color: #102a43; }}
+    table {{
+      border-collapse: collapse;
+      margin: 12px 0 28px;
+      width: 100%;
+    }}
+    th, td {{
+      border: 1px solid #d9e2ec;
+      padding: 8px;
+      text-align: right;
+    }}
+    th {{ background: #f0f4f8; }}
+    td:first-child, th:first-child {{ text-align: left; }}
+    .summary-grid {{
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 14px 0 28px;
+    }}
+    .summary-card {{
+      background: #ffffff;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, 0.04);
+      padding: 14px 16px;
+    }}
+    .summary-label {{
+      color: #52606d;
+      font-size: 0.78rem;
+      font-weight: bold;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }}
+    .summary-value {{
+      color: #102a43;
+      font-size: 1.25rem;
+      font-weight: bold;
+    }}
+    .note {{
+      background: #f7f9fb;
+      border-left: 4px solid #2a6f97;
+      padding: 12px 16px;
+    }}
+    .status-badge {{
+      border-radius: 999px;
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: bold;
+      line-height: 1;
+      padding: 6px 10px;
+    }}
+    .status-pass {{
+      background: #e3f9e5;
+      color: #1f7a1f;
+    }}
+    .status-borderline {{
+      background: #fff8c5;
+      color: #946200;
+    }}
+    .status-fail {{
+      background: #ffe3e3;
+      color: #c92a2a;
+    }}
+    @media (max-width: 800px) {{
+      .summary-grid {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
+<body>
+  <h1>Stability Study Validation Report</h1>
+  <p><strong>Generated:</strong> {generated_at}</p>
+
+  <h2>Executive Summary</h2>
+  {executive_summary_html}
+
+  <h2>Study Metadata</h2>
+  {metadata_html}
+
+  <h2>Laboratory Documentation</h2>
+  {laboratory_html}
+
+  <h2>Acceptance Criteria</h2>
+  <p>User-defined preliminary screening criteria: maximum percent change {criteria['Maximum Percent Change']:.2f}%; minimum recovery {criteria['Minimum Recovery']:.2f}%; maximum absolute bias {criteria['Maximum Absolute Bias']:.2f}; borderline zone {criteria['Borderline Zone']:.2f}%.</p>
+
+  <h2>Stability Summary</h2>
+  {overall_html}
+  {stability_html}
+
+  <h2>Acceptance Criteria Results</h2>
+  {criteria_html}
+
+  <h2>Timepoint Analysis</h2>
+  {timepoint_html}
+
+  <h2>Recovery Analysis</h2>
+  {recovery_html}
+
+  <h2>Bias Analysis</h2>
+  {bias_html}
+
+  <h2>Storage Condition Comparison</h2>
+  <p class="note">{escape(condition_interpretation)}</p>
+  {comparison_html}
+
+  <h2>Potential Stability Outliers</h2>
+  {outlier_html}
+
+  <h2>Risk Assessment</h2>
+  <p class="note">{escape(risk_assessment)}</p>
+
+  <h2>Visualizations</h2>
+  {figures_html}
+
+  <h2>Interpretation</h2>
+  <p class="note">{interpretation}</p>
+
+  <h2>Analyst Notes</h2>
+  <p><strong>Notes:</strong> {notes}</p>
+  <p><strong>Deviations:</strong> {deviations}</p>
+
+  <h2>Preliminary Conclusion</h2>
+  <p>{conclusions}</p>
+
+  <h2>Signature Section</h2>
+  <table>
+    <tr><th>Prepared by</th><td></td><th>Date</th><td></td></tr>
+    <tr><th>Reviewed by</th><td></td><th>Date</th><td></td></tr>
+    <tr><th>Approved by</th><td></td><th>Date</th><td></td></tr>
+  </table>
+</body>
+</html>
+"""
+
+
+def _pdf_clean(value: object) -> str:
+    """Return PDF-safe text."""
+
+    return str(value).replace("²", "2")
+
+
+def _pdf_add_table(pdf: FPDF, title: str, table: pd.DataFrame, max_rows: int = 18) -> None:
+    """Add a compact table to a PDF report."""
+
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, _pdf_clean(title), ln=True)
+    pdf.set_font("Arial", "B", 8)
+    columns = list(table.columns)
+    usable_width = pdf.w - pdf.l_margin - pdf.r_margin
+    column_width = usable_width / max(1, len(columns))
+    for column in columns:
+        pdf.cell(column_width, 6, _pdf_clean(column)[:22], border=1)
+    pdf.ln()
+    pdf.set_font("Arial", "", 8)
+    for _, row in table.head(max_rows).iterrows():
+        for column in columns:
+            pdf.cell(column_width, 6, _pdf_clean(row[column])[:22], border=1)
+        pdf.ln()
+    pdf.ln(4)
+
+
+def _pdf_add_line_chart(
+    pdf: FPDF,
+    title: str,
+    labels: list[str],
+    values: list[float],
+    y_label: str,
+) -> None:
+    """Draw a simple line chart directly in the PDF."""
+
+    if not values:
+        return
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, _pdf_clean(title), ln=True)
+    x0, y0 = pdf.l_margin + 8, pdf.get_y() + 6
+    width, height = 165, 55
+    pdf.rect(x0, y0, width, height)
+    y_min = min(values)
+    y_max = max(values)
+    if y_min == y_max:
+        y_min -= 1
+        y_max += 1
+    points = []
+    for index, value in enumerate(values):
+        x = x0 + (index / max(1, len(values) - 1)) * width
+        y = y0 + height - ((value - y_min) / (y_max - y_min)) * height
+        points.append((x, y))
+    pdf.set_draw_color(42, 111, 151)
+    for start, end in zip(points, points[1:]):
+        pdf.line(start[0], start[1], end[0], end[1])
+    pdf.set_fill_color(42, 111, 151)
+    for x, y in points:
+        pdf.ellipse(x - 1.5, y - 1.5, 3, 3, style="F")
+    pdf.set_draw_color(0, 0, 0)
+    pdf.set_font("Arial", "", 7)
+    for label, (x, _) in zip(labels, points):
+        pdf.text(x - 6, y0 + height + 5, _pdf_clean(label)[:10])
+    pdf.text(x0 - 6, y0 + 4, f"{y_max:.2f}")
+    pdf.text(x0 - 6, y0 + height, f"{y_min:.2f}")
+    pdf.text(x0, y0 + height + 12, _pdf_clean(y_label))
+    pdf.ln(height + 20)
+
+
+def build_stability_pdf_report(
+    stability_summary: pd.DataFrame,
+    timepoint_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    condition_comparison: pd.DataFrame,
+    outlier_table: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    risk_assessment: str,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+) -> bytes:
+    """Build a multi-page PDF stability study report."""
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 20)
+    pdf.cell(0, 14, "Stability Study Validation Report", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, f"Generated: {generated_at}", ln=True, align="C")
+    pdf.ln(8)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 8, f"Overall Decision: {decision}", ln=True)
+    pdf.set_font("Arial", "", 11)
+    for key, value in metadata.items():
+        pdf.multi_cell(0, 6, f"{_pdf_clean(key)}: {_pdf_clean(value or 'Not specified')}")
+
+    pdf.add_page()
+    _pdf_add_table(pdf, "Acceptance Criteria", pd.DataFrame([
+        {"Criterion": "Maximum Percent Change", "Limit": f"{criteria['Maximum Percent Change']:.2f}%"},
+        {"Criterion": "Minimum Recovery", "Limit": f"{criteria['Minimum Recovery']:.2f}%"},
+        {"Criterion": "Maximum Absolute Bias", "Limit": f"{criteria['Maximum Absolute Bias']:.2f}"},
+        {"Criterion": "Borderline Zone", "Limit": f"{criteria['Borderline Zone']:.2f}%"},
+    ]))
+    _pdf_add_table(pdf, "Executive Summary", format_stability_overall_summary(overall_summary))
+    _pdf_add_table(pdf, "Acceptance Results", format_stability_criteria_table(criteria_table))
+
+    pdf.add_page()
+    _pdf_add_table(pdf, "Stability Summary Table", format_stability_table(stability_summary))
+    _pdf_add_table(pdf, "Timepoint Summary Table", format_stability_table(timepoint_summary))
+
+    pdf.add_page()
+    _pdf_add_table(pdf, "Recovery Summary", format_stability_table(recovery_summary))
+    _pdf_add_table(pdf, "Bias Summary", format_stability_table(bias_summary))
+    if not condition_comparison.empty:
+        _pdf_add_table(
+            pdf,
+            "Storage Condition Comparison",
+            format_storage_condition_comparison_table(condition_comparison),
+        )
+    if not outlier_table.empty:
+        _pdf_add_table(
+            pdf,
+            "Potential Stability Outliers",
+            format_stability_outlier_table(outlier_table),
+            max_rows=12,
+        )
+
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Risk Assessment", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(0, 6, _pdf_clean(risk_assessment))
+    pdf.ln(3)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Interpretation", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(0, 6, _pdf_clean(interpretation))
+
+    pdf.add_page()
+    chart_summary = timepoint_summary.groupby("Timepoint", sort=False).agg(
+        **{
+            "Timepoint Mean": ("Timepoint Mean", "mean"),
+            "Mean Percent Change": ("Mean Percent Change", "mean"),
+            "Percent Recovery": ("Percent Recovery", "mean"),
+            "Bias": ("Bias", "mean"),
+        }
+    ).reset_index()
+    labels = chart_summary["Timepoint"].astype(str).tolist()
+    _pdf_add_line_chart(
+        pdf,
+        "Mean Result vs Timepoint",
+        labels,
+        chart_summary["Timepoint Mean"].astype(float).tolist(),
+        "Mean Result",
+    )
+    _pdf_add_line_chart(
+        pdf,
+        "Percent Change vs Timepoint",
+        labels,
+        chart_summary["Mean Percent Change"].astype(float).tolist(),
+        "Percent Change (%)",
+    )
+    _pdf_add_line_chart(
+        pdf,
+        "Recovery vs Timepoint",
+        labels,
+        chart_summary["Percent Recovery"].astype(float).tolist(),
+        "Recovery (%)",
+    )
+    _pdf_add_line_chart(
+        pdf,
+        "Bias vs Timepoint",
+        labels,
+        chart_summary["Bias"].astype(float).tolist(),
+        "Bias",
+    )
+
+    output = pdf.output(dest="S")
+    if isinstance(output, bytes):
+        return output
+    return output.encode("latin-1")

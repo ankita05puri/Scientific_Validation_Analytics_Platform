@@ -63,6 +63,24 @@ LINEARITY_REPORT_SECTIONS = (
 )
 
 
+STABILITY_REPORT_SECTIONS = (
+    "Study Metadata",
+    "Acceptance Criteria",
+    "Stability Summary",
+    "Timepoint Analysis",
+    "Recovery Analysis",
+    "Bias Analysis",
+    "Storage Condition Comparison",
+    "Potential Stability Outliers",
+    "Risk Assessment",
+    "Visualizations",
+    "Interpretation",
+    "Analyst Notes",
+    "Preliminary Conclusion",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -143,13 +161,36 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
         report_sections=LINEARITY_REPORT_SECTIONS,
         implemented=True,
     ),
-    "Stability": StudyTypeConfig(
-        name="Stability",
-        description="Placeholder module for specimen and assay stability studies.",
-        metrics=("Timepoint bias", "Percent change", "Stability trend"),
-        acceptance_criteria=("Maximum percent change",),
-        visualizations=("Stability trend plots",),
-        report_sections=STANDARD_REPORT_SECTIONS,
+    "Stability Study": StudyTypeConfig(
+        name="Stability Study",
+        description="Timepoint-based stability workflow for specimen and assay validation.",
+        metrics=(
+            "N",
+            "Baseline mean",
+            "Timepoint mean",
+            "Percent change",
+            "Percent recovery",
+            "Bias",
+            "Maximum observed change",
+            "Storage condition differences",
+            "Potential outliers",
+        ),
+        acceptance_criteria=(
+            "Maximum percent change from baseline",
+            "Minimum recovery",
+            "Maximum absolute bias",
+            "Pass with caution borderline zone",
+        ),
+        visualizations=(
+            "Stability trend plot",
+            "Percent change plot",
+            "Recovery plot",
+            "Bias plot",
+            "Condition difference plot",
+            "Individual sample stability plot",
+        ),
+        report_sections=STABILITY_REPORT_SECTIONS,
+        implemented=True,
     ),
     "Reference Range Verification": StudyTypeConfig(
         name="Reference Range Verification",
