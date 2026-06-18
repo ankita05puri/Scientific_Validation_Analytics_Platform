@@ -28,11 +28,13 @@ from analysis import (
     evaluate_accuracy_criteria,
     evaluate_detection_capability_criteria,
     evaluate_dbs_criteria,
+    evaluate_microtainer_criteria,
     evaluate_linearity_criteria,
     evaluate_precision_criteria,
     evaluate_stability_criteria,
     run_accuracy_study,
     run_dbs_validation_study,
+    run_microtainer_validation_study,
     run_detection_capability_study,
     run_linearity_study,
     run_method_comparison,
@@ -44,6 +46,8 @@ from plots import (
     create_blank_distribution_histogram,
     create_dbs_bland_altman_plot,
     create_dbs_scatter_plot,
+    create_microtainer_bland_altman_plot,
+    create_microtainer_scatter_plot,
     create_difference_plot,
     create_linearity_plot,
     create_loq_precision_curve,
@@ -64,6 +68,9 @@ from report import (
     format_dbs_criteria_table,
     format_dbs_overall_summary,
     format_dbs_table,
+    format_microtainer_criteria_table,
+    format_microtainer_overall_summary,
+    format_microtainer_table,
     format_linearity_criteria_table,
     format_linearity_regression_summary,
     format_linearity_summary_table,
@@ -74,6 +81,7 @@ from report import (
     format_stability_table,
     generate_accuracy_interpretation,
     generate_dbs_interpretation,
+    generate_microtainer_interpretation,
     generate_detection_interpretation,
     generate_interpretation,
     generate_linearity_interpretation,
@@ -105,6 +113,7 @@ SUPPORTED_STUDIES = (
     "Accuracy",
     "Detection Capability",
     "DBS Validation",
+    "Microtainer Validation",
 )
 
 
@@ -630,6 +639,87 @@ def build_dbs_report(root_dir: Path, project_metadata: dict[str, object]) -> Stu
     )
 
 
+def build_microtainer_report(root_dir: Path, project_metadata: dict[str, object]) -> StudyReport:
+    """Build normalized Microtainer validation payload for consolidated reports."""
+
+    data = pd.read_csv(_sample_path(root_dir, "microtainer_validation_hba1c.csv"))
+    criteria = {
+        "Maximum Absolute Percent Bias": 10.0,
+        "Recovery Lower Limit": 90.0,
+        "Recovery Upper Limit": 110.0,
+        "Minimum R²": 0.95,
+        "Maximum Mean Difference": 0.50,
+        "Borderline Zone": 2.0,
+    }
+    result = run_microtainer_validation_study(
+        data,
+        "Sample ID",
+        "Reference Result",
+        "Microtainer Result",
+        "Include in Analysis",
+        criteria["Maximum Absolute Percent Bias"],
+        criteria["Recovery Lower Limit"],
+        criteria["Recovery Upper Limit"],
+    )
+    criteria_result = evaluate_microtainer_criteria(
+        result.overall_summary,
+        criteria["Maximum Absolute Percent Bias"],
+        criteria["Recovery Lower Limit"],
+        criteria["Recovery Upper Limit"],
+        criteria["Minimum R²"],
+        criteria["Maximum Mean Difference"],
+        criteria["Borderline Zone"],
+    )
+    raw_decision = _criteria_decision(criteria_result)
+    decision = "PASS" if raw_decision == "PASS" else "FAIL"
+    metadata = _base_metadata(
+        project_metadata,
+        "Microtainer Validation",
+        "Evaluate whether microtainer-derived results demonstrate acceptable analytical agreement with reference venous specimens.",
+        "Paired capillary microtainer and venous specimens analyzed to assess analytical equivalency, bias, recovery, correlation, and agreement.",
+    )
+    metadata.update({"Specimen Comparison": "Microtainer whole blood vs venous whole blood"})
+    interpretation = generate_microtainer_interpretation(result.overall_summary, criteria, decision, metadata)
+    key_findings = pd.DataFrame(
+        [
+            {"Metric": "R²", "Result": f"{result.overall_summary['R²']:.4f}"},
+            {"Metric": "Mean Recovery", "Result": f"{result.overall_summary['Mean Recovery']:.2f}%"},
+            {"Metric": "Maximum Absolute Percent Bias", "Result": f"{result.overall_summary['Maximum Absolute Percent Bias']:.2f}%"},
+            {"Metric": "Mean Difference", "Result": f"{result.overall_summary['Mean Difference']:.3f}"},
+        ]
+    )
+    return StudyReport(
+        study_type="Microtainer Validation",
+        study_name=str(metadata["Study Name"]),
+        status="Completed",
+        decision=decision,
+        date=str(metadata["Study Date"]),
+        objective=str(metadata["Study Objective"]),
+        design=str(metadata["Study Design"]),
+        metadata=metadata,
+        acceptance_criteria=format_microtainer_criteria_table(build_criteria_table(criteria_result)),
+        key_findings=key_findings,
+        interpretation=interpretation,
+        visualizations={
+            "Microtainer vs Reference Scatter Plot": _figure_html(create_microtainer_scatter_plot(result.analyzed_data, result.overall_summary), True),
+            "Bland-Altman Plot": _figure_html(create_microtainer_bland_altman_plot(result.analyzed_data, result.overall_summary)),
+        },
+        raw_outputs={
+            "Microtainer Overall Summary": format_microtainer_overall_summary(result.overall_summary),
+            "Bias Summary": format_microtainer_table(result.bias_summary),
+            "Recovery Summary": format_microtainer_table(result.recovery_summary),
+            "Correlation Summary": format_microtainer_table(result.correlation_summary),
+            "Agreement Summary": format_microtainer_table(result.agreement_summary),
+            "Samples Requiring Review": format_microtainer_table(result.outlier_review),
+        },
+        **_traceability(
+            data,
+            result.analyzed_data,
+            "microtainer_validation_hba1c.csv",
+            "Microtainer specimen equivalency analysis using paired bias, percent recovery, Pearson correlation, ordinary least-squares regression, and Bland-Altman agreement.",
+            decision,
+        ),
+    )
 STUDY_BUILDERS = {
     "Method Comparison": build_method_comparison_report,
     "Precision": build_precision_report,
@@ -638,6 +728,7 @@ STUDY_BUILDERS = {
     "Accuracy": build_accuracy_report,
     "Detection Capability": build_detection_report,
     "DBS Validation": build_dbs_report,
+    "Microtainer Validation": build_microtainer_report,
 }
 
 

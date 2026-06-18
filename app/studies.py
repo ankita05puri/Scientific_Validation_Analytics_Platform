@@ -135,6 +135,22 @@ DBS_REPORT_SECTIONS = (
 )
 
 
+MICROTAINER_REPORT_SECTIONS = (
+    "Study Information",
+    "Acceptance Criteria",
+    "Executive Summary",
+    "Bias Analysis",
+    "Recovery Analysis",
+    "Correlation Analysis",
+    "Agreement Analysis",
+    "Sample-Level Review",
+    "Samples Requiring Review",
+    "Visualizations",
+    "Final Conclusion",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -353,11 +369,33 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
     ),
     "Microtainer Validation": StudyTypeConfig(
         name="Microtainer Validation",
-        description="Placeholder module for microtainer specimen validation workflows.",
-        metrics=("Bias", "Correlation", "Regression", "Agreement"),
-        acceptance_criteria=("Specimen comparison limits",),
-        visualizations=("Specimen comparison plots",),
-        report_sections=STANDARD_REPORT_SECTIONS,
+        description="Capillary microtainer specimen equivalency workflow for microtainer versus reference specimens.",
+        metrics=(
+            "Mean bias",
+            "Median bias",
+            "Mean percent bias",
+            "Recovery",
+            "Pearson r",
+            "R²",
+            "Regression equation",
+            "Bland-Altman limits",
+        ),
+        acceptance_criteria=(
+            "Maximum absolute percent bias",
+            "Recovery range",
+            "Minimum R²",
+            "Maximum mean difference",
+            "Borderline zone",
+        ),
+        visualizations=(
+            "Microtainer vs reference scatter plot",
+            "Bland-Altman plot",
+            "Recovery by sample",
+            "Percent bias by sample",
+            "Distribution comparison",
+        ),
+        report_sections=MICROTAINER_REPORT_SECTIONS,
+        implemented=True,
     ),
 }
 

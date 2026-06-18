@@ -2775,6 +2775,277 @@ def build_dbs_pdf_report(
     return output.encode("latin-1")
 
 
+def format_microtainer_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format Microtainer validation tables."""
+
+    return format_dbs_table(table)
+
+
+def format_microtainer_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFrame:
+    """Format Microtainer acceptance criteria results."""
+
+    formatted = criteria_table.copy()
+
+    def format_observed(row: pd.Series) -> str:
+        value = row["Observed Value"]
+        if pd.isna(value):
+            return ""
+        criterion = str(row["Criterion"]).lower()
+        suffix = "%" if "bias" in criterion or "recovery" in criterion else ""
+        digits = 4 if "r²" in criterion else 2
+        return _format_measurement(value, digits, suffix)
+
+    formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
+    if "Pass/Fail Status" in formatted.columns:
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].map(
+            lambda value: "PASS" if str(value).upper() == "PASS" else "FAIL"
+        )
+    if "Borderline Status" in formatted.columns:
+        formatted["Borderline Status"] = formatted["Borderline Status"].map(
+            lambda value: "YES" if bool(value) else "NO"
+        )
+    return formatted
+
+
+def format_microtainer_overall_summary(summary: dict[str, float | str]) -> pd.DataFrame:
+    """Format Microtainer overall summary metrics."""
+
+    rows = [
+        ("N", str(int(summary.get("N", 0)))),
+        ("Mean Bias", _format_measurement(summary.get("Mean Bias"), 3)),
+        ("Mean Percent Bias", _format_measurement(summary.get("Mean Percent Bias"), 2, "%")),
+        ("Mean Recovery", _format_measurement(summary.get("Mean Recovery"), 2, "%")),
+        ("R²", _format_measurement(summary.get("R²"), 4)),
+        ("Slope", _format_measurement(summary.get("Slope"), 4)),
+        ("Mean Difference", _format_measurement(summary.get("Mean Difference"), 3)),
+        ("Lower 95% LoA", _format_measurement(summary.get("Lower Limit of Agreement"), 3)),
+        ("Upper 95% LoA", _format_measurement(summary.get("Upper Limit of Agreement"), 3)),
+        ("Worst Sample", str(summary.get("Worst Sample", ""))),
+    ]
+    return pd.DataFrame(rows, columns=["Metric", "Value"])
+
+
+def build_microtainer_executive_summary(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> dict[str, str]:
+    """Build Microtainer executive summary card values."""
+
+    failed_count = 0
+    borderline_count = 0
+    if criteria_table is not None and not criteria_table.empty:
+        if "Pass/Fail Status" in criteria_table.columns:
+            failed_count = int((criteria_table["Pass/Fail Status"].astype(str).str.upper() == "FAIL").sum())
+        if "Borderline Status" in criteria_table.columns:
+            borderline_count = int((criteria_table["Borderline Status"].astype(str).str.upper().isin(["YES", "TRUE"])).sum())
+    return {
+        "Overall Decision": decision,
+        "Mean Bias": _format_measurement(overall_summary["Mean Bias"], 3),
+        "Mean Recovery": _format_measurement(overall_summary["Mean Recovery"], 2, "%"),
+        "R²": _format_measurement(overall_summary["R²"], 4),
+        "Worst Sample": str(overall_summary["Worst Sample"]),
+        "Borderline Findings": str(borderline_count),
+        "Failed Criteria": str(failed_count),
+    }
+
+
+def generate_microtainer_interpretation(
+    overall_summary: dict[str, float | str],
+    criteria: dict[str, float],
+    decision: str,
+    metadata: dict[str, object],
+) -> str:
+    """Generate professional Microtainer validation interpretation."""
+
+    study_name = metadata.get("Study Name") or "this Microtainer validation study"
+    assay = metadata.get("Assay / Biomarker") or "the assay"
+    if decision == "PASS":
+        criteria_text = "The predefined acceptance criteria were met."
+    else:
+        criteria_text = "One or more predefined acceptance criteria were not met."
+    return build_sectioned_interpretation(
+        {
+            "Study Objective": (
+                f"{study_name} evaluated whether microtainer-derived {assay} results demonstrate "
+                "acceptable analytical agreement with reference venous specimens."
+            ),
+            "Analytical Findings": (
+                f"Mean percent bias was "
+                f"{_format_measurement(overall_summary['Mean Percent Bias'], 2, '%')}, "
+                f"recovery ranged from {_format_measurement(overall_summary['Minimum Recovery'], 2, '%')} "
+                f"to {_format_measurement(overall_summary['Maximum Recovery'], 2, '%')}, "
+                f"R² was {_format_measurement(overall_summary['R²'], 4)}, and the mean difference was "
+                f"{_format_measurement(overall_summary['Mean Difference'], 3)}. Bland-Altman limits were "
+                f"{_format_measurement(overall_summary['Lower Limit of Agreement'], 3)} to "
+                f"{_format_measurement(overall_summary['Upper Limit of Agreement'], 3)}."
+            ),
+            "Acceptance Criteria Assessment": criteria_text,
+            "Validation Conclusion": (
+                f"The final validation decision is {decision}. "
+                "This interpretation is informational only and does not replace formal laboratory review."
+            ),
+        }
+    )
+
+
+def microtainer_executive_summary_html(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> str:
+    """Render Microtainer executive summary cards."""
+
+    cards = []
+    for label, value in build_microtainer_executive_summary(overall_summary, decision, criteria_table).items():
+        value_html = status_badge_html(value) if label == "Overall Decision" else escape(value)
+        cards.append(
+            f"""
+            <div class="summary-card">
+              <div class="summary-label">{escape(label)}</div>
+              <div class="summary-value">{value_html}</div>
+            </div>
+            """
+        )
+    return '<div class="summary-grid">' + "".join(cards) + "</div>"
+
+
+def build_microtainer_html_report(
+    study_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    correlation_summary: pd.DataFrame,
+    agreement_summary: pd.DataFrame,
+    volume_summary: pd.DataFrame,
+    delay_summary: pd.DataFrame,
+    instrument_summary: pd.DataFrame,
+    collection_site_summary: pd.DataFrame,
+    outlier_review: pd.DataFrame,
+    scientific_findings: list[str],
+    sample_review: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+    visualization_html: dict[str, str] | None = None,
+) -> str:
+    """Build a complete Microtainer Validation HTML report."""
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    formatted_criteria = format_microtainer_criteria_table(criteria_table)
+    figures_html = "".join(f"<h3>{escape(title)}</h3>{figure_html}" for title, figure_html in (visualization_html or {}).items())
+    interpretation_html = "<br><br>".join(escape(paragraph) for paragraph in interpretation.split("\n\n"))
+    review_html = (
+        "<p>No samples required reviewer attention.</p>"
+        if outlier_review.empty
+        else format_microtainer_table(outlier_review).to_html(index=False)
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Microtainer Validation Report</title>
+  <style>
+    body {{ color:#1f2933; font-family:Arial,sans-serif; line-height:1.5; margin:40px; }}
+    h1,h2,h3 {{ color:#102a43; }}
+    table {{ border-collapse:collapse; margin:12px 0 28px; width:100%; }}
+    th,td {{ border:1px solid #d9e2ec; padding:8px; text-align:right; }}
+    th {{ background:#f0f4f8; }}
+    td:first-child,th:first-child {{ text-align:left; }}
+    .summary-grid {{ display:grid; gap:12px; grid-template-columns:repeat(3,minmax(0,1fr)); margin:14px 0 28px; }}
+    .summary-card {{ border:1px solid #d9e2ec; border-radius:8px; padding:14px 16px; background:#fff; }}
+    .summary-label {{ color:#52606d; font-size:.78rem; font-weight:bold; text-transform:uppercase; }}
+    .summary-value {{ color:#102a43; font-size:1.25rem; font-weight:bold; }}
+    .note {{ background:#f7f9fb; border-left:4px solid #2a6f97; padding:12px 16px; }}
+    .status-badge {{ border-radius:999px; display:inline-block; font-size:.78rem; font-weight:bold; padding:6px 10px; }}
+    .status-pass {{ background:#e3f9e5; color:#1f7a1f; }}
+    .status-borderline {{ background:#fff8c5; color:#946200; }}
+    .status-fail {{ background:#ffe3e3; color:#c92a2a; }}
+  </style>
+</head>
+<body>
+  <h1>Microtainer Validation Report</h1>
+  <p><strong>Generated:</strong> {generated_at}</p>
+  <h2>Study Information</h2>
+  {_metadata_to_html(metadata)}
+  <h2>Executive Summary</h2>
+  {microtainer_executive_summary_html(overall_summary, decision, formatted_criteria)}
+  {format_microtainer_overall_summary(overall_summary).to_html(index=False)}
+  <h2>Acceptance Criteria</h2>
+  <p>Maximum absolute percent bias {criteria['Maximum Absolute Percent Bias']:.2f}%; recovery {criteria['Recovery Lower Limit']:.2f}% to {criteria['Recovery Upper Limit']:.2f}%; minimum R² {criteria['Minimum R²']:.3f}; maximum mean difference {criteria['Maximum Mean Difference']:.3f}; borderline zone {criteria['Borderline Zone']:.2f}%.</p>
+  <h2>Statistical Results</h2>
+  <h3>Bias Analysis</h3>{format_microtainer_table(bias_summary).to_html(index=False)}
+  <h3>Recovery Analysis</h3>{format_microtainer_table(recovery_summary).to_html(index=False)}
+  <h3>Correlation Analysis</h3>{format_microtainer_table(correlation_summary).to_html(index=False)}
+  <h3>Agreement Analysis</h3>{format_microtainer_table(agreement_summary).to_html(index=False)}
+  <h2>Acceptance Criteria Results</h2>
+  {criteria_table_to_badged_html(formatted_criteria)}
+  <h2>Sample-Level Review</h2>{format_microtainer_table(sample_review.head(10)).to_html(index=False)}
+  <h2>Samples Requiring Review</h2>{review_html}
+  <h2>Visualizations</h2>{figures_html}
+  <h2>Final Conclusion</h2><p class="note">{interpretation_html}</p>
+  <h2>Signature Section</h2>
+  <p>Prepared By: ________________________________</p>
+  <p>Reviewed By: ________________________________</p>
+  <p>Approved By: ________________________________</p>
+</body>
+</html>"""
+
+
+def build_microtainer_pdf_report(
+    study_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    correlation_summary: pd.DataFrame,
+    agreement_summary: pd.DataFrame,
+    volume_summary: pd.DataFrame,
+    delay_summary: pd.DataFrame,
+    instrument_summary: pd.DataFrame,
+    collection_site_summary: pd.DataFrame,
+    outlier_review: pd.DataFrame,
+    scientific_findings: list[str],
+    sample_review: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+) -> bytes:
+    """Build a compact Microtainer Validation PDF report."""
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 12, "Microtainer Validation Report", ln=True, align="C")
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align="C")
+    _pdf_add_table(pdf, "Study Information", pd.DataFrame([{"Field": k, "Value": v or "Not specified"} for k, v in metadata.items()]))
+    _pdf_add_table(pdf, "Executive Summary", format_microtainer_overall_summary(overall_summary))
+    _pdf_add_table(pdf, "Acceptance Criteria Results", format_microtainer_criteria_table(criteria_table))
+    for title, table in [
+        ("Bias Analysis", bias_summary),
+        ("Recovery Analysis", recovery_summary),
+        ("Correlation Analysis", correlation_summary),
+        ("Agreement Analysis", agreement_summary),
+        ("Samples Requiring Review", outlier_review.head(8)),
+        ("Sample-Level Review", sample_review.head(8)),
+    ]:
+        if not table.empty:
+            _pdf_add_table(pdf, title, format_microtainer_table(table))
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Final Conclusion", ln=True)
+    pdf.set_font("Arial", "", 9)
+    pdf.multi_cell(0, 5, _pdf_clean(interpretation))
+    output = pdf.output(dest="S")
+    if isinstance(output, bytes):
+        return output
+    return output.encode("latin-1")
+
+
 def _pdf_clean(value: object) -> str:
     """Return PDF-safe text."""
 

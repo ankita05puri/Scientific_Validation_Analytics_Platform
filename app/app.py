@@ -35,9 +35,11 @@ from analysis import (
     get_top_outliers,
     run_accuracy_study,
     evaluate_dbs_criteria,
+    evaluate_microtainer_criteria,
     evaluate_detection_capability_criteria,
     build_detection_decision_matrix,
     run_dbs_validation_study,
+    run_microtainer_validation_study,
     run_detection_capability_study,
     run_linearity_study,
     run_precision_study,
@@ -66,6 +68,11 @@ from plots import (
     create_dbs_percent_bias_plot,
     create_dbs_recovery_plot,
     create_dbs_scatter_plot,
+    create_microtainer_bland_altman_plot,
+    create_microtainer_distribution_comparison,
+    create_microtainer_percent_bias_plot,
+    create_microtainer_recovery_plot,
+    create_microtainer_scatter_plot,
     create_detection_replicate_distribution_plot,
     create_detection_replicate_scatter_plot,
     create_detection_capability_ladder,
@@ -101,6 +108,9 @@ from report import (
     build_dbs_executive_summary,
     build_dbs_html_report,
     build_dbs_pdf_report,
+    build_microtainer_executive_summary,
+    build_microtainer_html_report,
+    build_microtainer_pdf_report,
     build_html_report,
     build_linearity_executive_summary,
     build_linearity_html_report,
@@ -122,6 +132,9 @@ from report import (
     format_dbs_criteria_table,
     format_dbs_overall_summary,
     format_dbs_table,
+    format_microtainer_criteria_table,
+    format_microtainer_overall_summary,
+    format_microtainer_table,
     format_linearity_criteria_table,
     format_linearity_equation,
     format_linearity_regression_summary,
@@ -137,6 +150,7 @@ from report import (
     generate_accuracy_interpretation,
     generate_detection_interpretation,
     generate_dbs_interpretation,
+    generate_microtainer_interpretation,
     generate_linearity_interpretation,
     generate_precision_interpretation,
     generate_stability_risk_assessment,
@@ -162,6 +176,7 @@ STABILITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "stability_stud
 ACCURACY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "accuracy_study_hba1c.csv"
 DETECTION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "detection_capability_hba1c.csv"
 DBS_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "dbs_validation_hba1c.csv"
+MICROTAINER_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "microtainer_validation_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
@@ -747,6 +762,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
     is_accuracy = study_type == "Accuracy Study"
     is_detection = study_type == "Detection Capability"
     is_dbs = study_type == "DBS Validation"
+    is_microtainer = study_type == "Microtainer Validation"
     default_study_name = (
         "HbA1c Precision Study"
         if is_precision
@@ -760,6 +776,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_detection
         else "HbA1c DBS Validation Study"
         if is_dbs
+        else "HbA1c Microtainer Validation Study"
+        if is_microtainer
         else "HbA1c Method Comparison Study"
     )
     default_objective = (
@@ -775,6 +793,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_detection
         else "Evaluate whether DBS-derived results demonstrate acceptable analytical agreement with reference venous specimens."
         if is_dbs
+        else "Evaluate whether microtainer-derived results demonstrate acceptable analytical agreement with reference venous specimens."
+        if is_microtainer
         else "Evaluate agreement between candidate and reference results."
     )
     default_design = (
@@ -790,6 +810,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_detection
         else "Paired DBS and venous whole blood specimens analyzed to evaluate recovery, bias, correlation, and agreement."
         if is_dbs
+        else "Paired capillary microtainer and venous specimens analyzed to assess analytical equivalency, bias, recovery, correlation, and agreement."
+        if is_microtainer
         else "Paired specimen comparison using reference and candidate measurements."
     )
 
@@ -824,13 +846,15 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     reference_method = ""
     candidate_method = ""
-    if is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs:
+    if is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs or is_microtainer:
         units = st.text_input("Units", value="%")
         key_prefix = (
             "detection"
             if is_detection
             else "dbs"
             if is_dbs
+            else "microtainer"
+            if is_microtainer
             else "accuracy"
             if is_accuracy
             else
@@ -844,6 +868,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         reagent_lot = calibrator_lot = qc_lot = operator_name = ""
         study_protocol_id = clsi_guideline_reference = ""
         dbs_collection_device = dbs_punch_size = extraction_method = specimen_matrix = ""
+        microtainer_type = anticoagulant = collection_device = specimen_comparison = ""
         with st.expander("Laboratory Documentation", expanded=False):
             lab_row_1 = st.columns(3)
             with lab_row_1[0]:
@@ -886,6 +911,30 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
                         value="DBS vs Venous Whole Blood",
                         key=f"{key_prefix}_specimen_matrix",
                     )
+            if is_microtainer:
+                micro_row = st.columns(4)
+                with micro_row[0]:
+                    collection_device = st.text_input(
+                        "Microtainer Collection Device",
+                        key=f"{key_prefix}_collection_device",
+                    )
+                with micro_row[1]:
+                    microtainer_type = st.text_input(
+                        "Microtainer Type",
+                        value="Capillary whole blood microtainer",
+                        key=f"{key_prefix}_type",
+                    )
+                with micro_row[2]:
+                    anticoagulant = st.text_input(
+                        "Anticoagulant / Additive",
+                        key=f"{key_prefix}_anticoagulant",
+                    )
+                with micro_row[3]:
+                    specimen_comparison = st.text_input(
+                        "Specimen Comparison",
+                        value="Microtainer whole blood vs venous whole blood",
+                        key=f"{key_prefix}_specimen_comparison",
+                    )
             if is_detection:
                 detection_row = st.columns(2)
                 with detection_row[0]:
@@ -926,10 +975,10 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
-    if not (is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs):
+    if not (is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs or is_microtainer):
         metadata["Reference Method"] = reference_method
         metadata["Candidate Method"] = candidate_method
-    elif is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs:
+    elif is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs or is_microtainer:
         metadata.update(
             {
                 "Instrument Name": instrument_name,
@@ -964,6 +1013,19 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
                     "Instrument": instrument_name,
                     "Specimen Matrix": specimen_matrix or "DBS vs Venous Whole Blood",
                     "Specimen Comparison": "DBS vs Venous Whole Blood",
+                }
+            )
+        if is_microtainer:
+            metadata.update(
+                {
+                    "Reviewer": "",
+                    "Protocol Number": "",
+                    "Laboratory Name": laboratory_site,
+                    "Instrument": instrument_name,
+                    "Microtainer Collection Device": collection_device,
+                    "Microtainer Type": microtainer_type,
+                    "Anticoagulant / Additive": anticoagulant,
+                    "Specimen Comparison": specimen_comparison or "Microtainer whole blood vs venous whole blood",
                 }
             )
     return metadata
@@ -1389,6 +1451,48 @@ def render_dbs_criteria() -> dict[str, float]:
     }
 
 
+def render_microtainer_criteria() -> dict[str, float | str]:
+    """Render preset-driven Microtainer preliminary acceptance criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are user-defined preliminary screening thresholds, not regulatory approval."
+    )
+    preset = st.selectbox(
+        "Criteria template",
+        ["Internal Validation", "Research Use", "CLIA Laboratory Evaluation", "Custom Criteria"],
+    )
+    preset_values = {
+        "Internal Validation": (10.0, 90.0, 110.0, 0.95, 0.50, 2.0),
+        "Research Use": (15.0, 85.0, 115.0, 0.90, 0.75, 3.0),
+        "CLIA Laboratory Evaluation": (8.0, 92.0, 108.0, 0.97, 0.40, 2.0),
+        "Custom Criteria": (10.0, 90.0, 110.0, 0.95, 0.50, 2.0),
+    }
+    max_bias, recovery_lower, recovery_upper, min_r2, max_difference, borderline = preset_values[preset]
+    row = st.columns(6)
+    with row[0]:
+        max_bias = st.number_input("Maximum absolute percent bias", min_value=0.0, value=max_bias, step=0.5, format="%.2f")
+    with row[1]:
+        recovery_lower = st.number_input("Recovery lower limit", min_value=0.0, max_value=150.0, value=recovery_lower, step=0.5, format="%.2f")
+    with row[2]:
+        recovery_upper = st.number_input("Recovery upper limit", min_value=0.0, max_value=200.0, value=recovery_upper, step=0.5, format="%.2f")
+    with row[3]:
+        min_r2 = st.number_input("Minimum R²", min_value=0.0, max_value=1.0, value=min_r2, step=0.01, format="%.2f")
+    with row[4]:
+        max_difference = st.number_input("Maximum mean difference", min_value=0.0, value=max_difference, step=0.05, format="%.2f")
+    with row[5]:
+        borderline = st.number_input("Borderline zone", min_value=0.0, value=borderline, step=0.5, format="%.2f")
+    return {
+        "Criteria Template": preset,
+        "Maximum Absolute Percent Bias": max_bias,
+        "Recovery Lower Limit": recovery_lower,
+        "Recovery Upper Limit": recovery_upper,
+        "Minimum R²": min_r2,
+        "Maximum Mean Difference": max_difference,
+        "Borderline Zone": borderline,
+    }
+
+
 def optional_column_selectbox(
     label: str, columns: list[str], default_column: str | None = None
 ) -> str | None:
@@ -1628,6 +1732,42 @@ def build_dbs_summary_csv(
     pd.DataFrame({"Finding": scientific_findings}).to_csv(buffer, index=False)
     buffer.write("\nSample-Level Review\n")
     sample_review.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def build_microtainer_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    overall_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    correlation_summary: pd.DataFrame,
+    agreement_summary: pd.DataFrame,
+    volume_summary: pd.DataFrame,
+    delay_summary: pd.DataFrame,
+    instrument_summary: pd.DataFrame,
+    collection_site_summary: pd.DataFrame,
+    outlier_review: pd.DataFrame,
+    scientific_findings: list[str],
+    sample_review: pd.DataFrame,
+) -> str:
+    """Build machine-readable Microtainer validation appendix CSV."""
+
+    buffer = StringIO()
+    pd.DataFrame([{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]).to_csv(buffer, index=False)
+    for title, table in [
+        ("Executive Summary", overall_summary),
+        ("Acceptance Criteria Results", criteria_table),
+        ("Bias Analysis", bias_summary),
+        ("Recovery Analysis", recovery_summary),
+        ("Correlation Analysis", correlation_summary),
+        ("Agreement Analysis", agreement_summary),
+        ("Samples Requiring Review", outlier_review),
+        ("Sample-Level Review", sample_review),
+    ]:
+        if not table.empty:
+            buffer.write(f"\n{title}\n")
+            table.to_csv(buffer, index=False)
     return buffer.getvalue()
 
 
@@ -2436,6 +2576,251 @@ def render_dbs_workspace(metadata: dict[str, object]) -> None:
                 file_name="dbs_validation_report.pdf",
                 mime="application/pdf",
             )
+
+
+def render_microtainer_workspace(metadata: dict[str, object]) -> None:
+    """Render the Microtainer Validation workflow."""
+
+    criteria = render_microtainer_criteria()
+    uploaded_file = st.file_uploader(
+        "Upload microtainer validation data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload paired microtainer and reference specimen results. Maximum intended file size: 200 MB.",
+    )
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c microtainer validation dataset",
+        value=uploaded_file is None,
+    )
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(MICROTAINER_SAMPLE_DATA_PATH)
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+    st.subheader("Data Preview")
+    st.dataframe(data.head(25), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    all_columns = list(data.columns)
+    if len(numeric_columns) < 2:
+        st.error("Reference and microtainer numeric result columns are required.")
+        st.stop()
+
+    st.subheader("Column Selection")
+    first_row = st.columns(3)
+    with first_row[0]:
+        sample_id_column = st.selectbox("Sample ID column", all_columns, index=all_columns.index("Sample ID") if "Sample ID" in all_columns else 0)
+    with first_row[1]:
+        reference_column = st.selectbox("Reference Result column", numeric_columns, index=numeric_columns.index("Reference Result") if "Reference Result" in numeric_columns else 0)
+    with first_row[2]:
+        microtainer_column = st.selectbox("Microtainer Result column", numeric_columns, index=numeric_columns.index("Microtainer Result") if "Microtainer Result" in numeric_columns else min(1, len(numeric_columns) - 1))
+
+    second_row = st.columns(4)
+    with second_row[0]:
+        collection_date_column = optional_column_selectbox("Collection Date column", all_columns, "Collection Date" if "Collection Date" in all_columns else None)
+    with second_row[1]:
+        processing_date_column = optional_column_selectbox("Processing Date column", all_columns, "Processing Date" if "Processing Date" in all_columns else None)
+    with second_row[2]:
+        instrument_column = optional_column_selectbox("Instrument column", all_columns, "Instrument" if "Instrument" in all_columns else None)
+    with second_row[3]:
+        include_column = optional_column_selectbox("Include in Analysis column", all_columns, "Include in Analysis" if "Include in Analysis" in all_columns else None)
+    third_row = st.columns(4)
+    with third_row[0]:
+        replicate_column = optional_column_selectbox("Replicate column", all_columns, "Replicate" if "Replicate" in all_columns else None)
+    with third_row[1]:
+        operator_column = optional_column_selectbox("Operator column", all_columns, "Operator" if "Operator" in all_columns else None)
+    with third_row[2]:
+        collection_site_column = optional_column_selectbox("Collection Site column", all_columns, "Collection Site" if "Collection Site" in all_columns else None)
+    with third_row[3]:
+        notes_column = optional_column_selectbox("Notes column", all_columns, "Notes" if "Notes" in all_columns else None)
+    _ = (collection_date_column, processing_date_column, instrument_column, replicate_column, operator_column, collection_site_column, notes_column)
+
+    if reference_column == microtainer_column:
+        st.warning("Select different reference and microtainer result columns.")
+
+    run_analysis = st.button("Run Microtainer Validation Analysis", type="primary")
+    if run_analysis:
+        if reference_column == microtainer_column:
+            st.stop()
+        try:
+            result = run_microtainer_validation_study(
+                data=data,
+                sample_id_column=sample_id_column,
+                reference_column=reference_column,
+                microtainer_column=microtainer_column,
+                include_column=include_column,
+                max_percent_bias=float(criteria["Maximum Absolute Percent Bias"]),
+                min_recovery=float(criteria["Recovery Lower Limit"]),
+                max_recovery=float(criteria["Recovery Upper Limit"]),
+            )
+        except Exception as exc:
+            st.error(f"Microtainer validation analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_microtainer_criteria(
+            result.overall_summary,
+            max_percent_bias=float(criteria["Maximum Absolute Percent Bias"]),
+            min_recovery=float(criteria["Recovery Lower Limit"]),
+            max_recovery=float(criteria["Recovery Upper Limit"]),
+            min_r_squared=float(criteria["Minimum R²"]),
+            max_mean_difference=float(criteria["Maximum Mean Difference"]),
+            borderline_zone=float(criteria["Borderline Zone"]),
+        )
+        raw_decision = str(criteria_result["decision"])
+        decision = "PASS" if raw_decision == "PASS" else "FAIL"
+        criteria_table = build_criteria_table(criteria_result)
+        display_criteria = format_microtainer_criteria_table(criteria_table)
+        display_overall = format_microtainer_overall_summary(result.overall_summary)
+        display_bias = format_microtainer_table(result.bias_summary)
+        display_recovery = format_microtainer_table(result.recovery_summary)
+        display_correlation = format_microtainer_table(result.correlation_summary)
+        display_agreement = format_microtainer_table(result.agreement_summary)
+        display_outliers = format_microtainer_table(result.outlier_review)
+        display_sample_review = format_microtainer_table(result.sample_review)
+        interpretation = generate_microtainer_interpretation(
+            result.overall_summary, dict(criteria), decision, metadata
+        )
+
+        st.subheader("Microtainer Executive Summary")
+        summary_values = build_microtainer_executive_summary(result.overall_summary, decision, display_criteria)
+        for row_start in range(0, len(summary_values), 4):
+            columns = st.columns(4)
+            for column, (label, value) in zip(columns, list(summary_values.items())[row_start : row_start + 4]):
+                with column:
+                    render_metric_card(label, value, status=value if label == "Overall Decision" else None)
+
+        st.subheader("Microtainer Validation Summary")
+        show_decision(decision)
+        st.dataframe(display_overall, width="stretch")
+
+        st.subheader("Acceptance Criteria Results")
+        render_badged_criteria_table(display_criteria)
+
+        left, right = st.columns(2)
+        with left:
+            st.subheader("Bias Analysis")
+            st.dataframe(display_bias, width="stretch")
+            st.subheader("Correlation Analysis")
+            st.dataframe(display_correlation, width="stretch")
+        with right:
+            st.subheader("Recovery Analysis")
+            st.dataframe(display_recovery, width="stretch")
+            st.subheader("Agreement Analysis")
+            st.dataframe(display_agreement, width="stretch")
+
+        st.subheader("Sample-Level Review")
+        st.dataframe(display_sample_review.head(10), width="stretch")
+        st.subheader("Samples Requiring Review")
+        if result.outlier_review.empty:
+            st.info("No samples required reviewer attention.")
+        else:
+            st.dataframe(display_outliers, width="stretch")
+
+        scatter_plot = create_microtainer_scatter_plot(result.analyzed_data, result.overall_summary)
+        bland_altman_plot = create_microtainer_bland_altman_plot(result.analyzed_data, result.overall_summary)
+        recovery_plot = create_microtainer_recovery_plot(result.analyzed_data, float(criteria["Recovery Lower Limit"]), float(criteria["Recovery Upper Limit"]))
+        percent_bias_plot = create_microtainer_percent_bias_plot(result.analyzed_data, float(criteria["Maximum Absolute Percent Bias"]))
+        distribution_plot = create_microtainer_distribution_comparison(result.analyzed_data)
+
+        st.subheader("Visualizations")
+        st.plotly_chart(scatter_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(bland_altman_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(distribution_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(recovery_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(percent_bias_plot, width="stretch")
+
+        st.subheader("Analyzed Dataset")
+        st.dataframe(format_microtainer_table(result.analyzed_data), width="stretch")
+        st.subheader("Final Validation Decision")
+        st.info(interpretation)
+
+        visualization_html = {
+            "Microtainer vs Reference Scatter Plot": scatter_plot.to_html(full_html=False, include_plotlyjs="cdn"),
+            "Bland-Altman Plot": bland_altman_plot.to_html(full_html=False, include_plotlyjs=False),
+            "Recovery by Sample": recovery_plot.to_html(full_html=False, include_plotlyjs=False),
+            "Percent Bias by Sample": percent_bias_plot.to_html(full_html=False, include_plotlyjs=False),
+            "Distribution Comparison": distribution_plot.to_html(full_html=False, include_plotlyjs=False),
+        }
+
+        html_report = build_microtainer_html_report(
+            result.study_summary,
+            result.bias_summary,
+            result.recovery_summary,
+            result.correlation_summary,
+            result.agreement_summary,
+            result.volume_summary,
+            result.delay_summary,
+            result.instrument_summary,
+            result.collection_site_summary,
+            result.outlier_review,
+            [],
+            result.sample_review,
+            result.overall_summary,
+            criteria_table,
+            interpretation,
+            metadata,
+            dict(criteria),
+            decision,
+            visualization_html,
+        )
+        pdf_report = build_microtainer_pdf_report(
+            result.study_summary,
+            result.bias_summary,
+            result.recovery_summary,
+            result.correlation_summary,
+            result.agreement_summary,
+            result.volume_summary,
+            result.delay_summary,
+            result.instrument_summary,
+            result.collection_site_summary,
+            result.outlier_review,
+            [],
+            result.sample_review,
+            result.overall_summary,
+            criteria_table,
+            interpretation,
+            metadata,
+            dict(criteria),
+            decision,
+        )
+        summary_csv = build_microtainer_summary_csv(
+            metadata,
+            display_criteria,
+            display_overall,
+            display_bias,
+            display_recovery,
+            display_correlation,
+            display_agreement,
+            pd.DataFrame(),
+            pd.DataFrame(),
+            pd.DataFrame(),
+            pd.DataFrame(),
+            display_outliers,
+            [],
+            display_sample_review,
+        )
+
+        export_left, export_middle, export_right = st.columns(3)
+        with export_left:
+            st.download_button("Download regulatory appendix CSV", data=summary_csv.encode("utf-8"), file_name="microtainer_validation_appendix.csv", mime="text/csv")
+        with export_middle:
+            st.download_button("Download Microtainer validation report HTML", data=html_report.encode("utf-8"), file_name="microtainer_validation_report.html", mime="text/html")
+        with export_right:
+            st.download_button("Download Microtainer validation report PDF", data=pdf_report, file_name="microtainer_validation_report.pdf", mime="application/pdf")
 
 
 def render_accuracy_workspace(metadata: dict[str, object]) -> None:
@@ -3523,6 +3908,11 @@ def main() -> None:
     if study_type == "DBS Validation":
         metadata = render_study_documentation(study_type)
         render_dbs_workspace(metadata)
+        st.stop()
+
+    if study_type == "Microtainer Validation":
+        metadata = render_study_documentation(study_type)
+        render_microtainer_workspace(metadata)
         st.stop()
 
     if study_type != "Method Comparison":

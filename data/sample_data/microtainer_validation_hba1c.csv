@@ -1,0 +1,26 @@
+Sample ID,Reference Result,Microtainer Result,Collection Date,Processing Date,Analysis Date,Collection Volume,Instrument,Replicate,Operator,Collection Site,Notes,Include in Analysis
+MT-001,5.0,5.1,2026-02-01,2026-02-01,2026-02-01,520,Variant II,1,Operator A,Fingerstick Site 1,,Yes
+MT-002,5.3,5.2,2026-02-01,2026-02-01,2026-02-01,480,Variant II,1,Operator A,Fingerstick Site 1,,Yes
+MT-003,5.6,5.6,2026-02-02,2026-02-02,2026-02-02,510,Variant II,1,Operator B,Fingerstick Site 2,,Yes
+MT-004,5.9,5.8,2026-02-02,2026-02-02,2026-02-02,450,Variant II,1,Operator B,Fingerstick Site 2,,Yes
+MT-005,6.1,6.0,2026-02-03,2026-02-03,2026-02-03,530,Variant II,1,Operator A,Fingerstick Site 1,,Yes
+MT-006,6.4,6.5,2026-02-03,2026-02-04,2026-02-04,500,Variant II,1,Operator A,Fingerstick Site 1,,Yes
+MT-007,6.7,6.6,2026-02-04,2026-02-05,2026-02-05,470,Variant II,1,Operator B,Fingerstick Site 2,,Yes
+MT-008,7.0,6.9,2026-02-04,2026-02-05,2026-02-05,490,Variant II,1,Operator B,Fingerstick Site 2,,Yes
+MT-009,7.3,7.2,2026-02-05,2026-02-06,2026-02-06,515,Variant II,1,Operator A,Fingerstick Site 1,,Yes
+MT-010,7.6,7.5,2026-02-05,2026-02-06,2026-02-06,505,Variant II,1,Operator A,Fingerstick Site 1,,Yes
+MT-011,7.9,7.8,2026-02-06,2026-02-08,2026-02-08,460,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-012,8.2,8.1,2026-02-06,2026-02-08,2026-02-08,440,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-013,8.6,8.5,2026-02-07,2026-02-09,2026-02-09,495,Variant III,1,Operator D,Fingerstick Site 1,,Yes
+MT-014,9.0,8.9,2026-02-07,2026-02-09,2026-02-09,525,Variant III,1,Operator D,Fingerstick Site 1,,Yes
+MT-015,9.4,9.3,2026-02-08,2026-02-10,2026-02-10,510,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-016,9.8,9.7,2026-02-08,2026-02-10,2026-02-10,475,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-017,10.2,10.1,2026-02-09,2026-02-12,2026-02-12,455,Variant III,1,Operator D,Fingerstick Site 1,,Yes
+MT-018,10.7,10.5,2026-02-09,2026-02-12,2026-02-12,430,Variant III,1,Operator D,Fingerstick Site 1,,Yes
+MT-019,11.1,10.9,2026-02-10,2026-02-13,2026-02-13,420,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-020,11.6,11.4,2026-02-10,2026-02-13,2026-02-13,405,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-021,12.0,11.8,2026-02-11,2026-02-14,2026-02-14,390,Variant III,1,Operator D,Fingerstick Site 2,,Yes
+MT-022,12.5,12.3,2026-02-11,2026-02-14,2026-02-14,415,Variant III,1,Operator D,Fingerstick Site 2,,Yes
+MT-023,13.0,12.8,2026-02-12,2026-02-16,2026-02-16,395,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-024,13.6,13.4,2026-02-12,2026-02-16,2026-02-16,385,Variant III,1,Operator C,Fingerstick Site 3,,Yes
+MT-025,14.1,13.8,2026-02-13,2026-02-17,2026-02-17,375,Variant III,1,Operator D,Fingerstick Site 2,,Yes
