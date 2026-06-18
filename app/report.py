@@ -9,6 +9,9 @@ from io import BytesIO
 import pandas as pd
 from fpdf import FPDF
 
+from validation.acceptance import count_statuses, normalize_status
+from validation.interpretation import build_sectioned_interpretation
+
 
 SUMMARY_COLUMNS = [
     "N",
@@ -26,6 +29,25 @@ SUMMARY_COLUMNS = [
     "Slope",
     "Intercept",
 ]
+
+
+def _format_measurement(value: object, digits: int = 2, suffix: str = "") -> str:
+    """Format numeric values for scientific review tables."""
+
+    if pd.isna(value):
+        return ""
+    numeric_value = float(value)
+    if numeric_value != 0 and (abs(numeric_value) >= 10000 or abs(numeric_value) < 0.001):
+        return f"{numeric_value:.{digits}e}{suffix}"
+    return f"{numeric_value:.{digits}f}{suffix}"
+
+
+def _format_interval(lower: object, upper: object, digits: int = 2, suffix: str = "") -> str:
+    """Format a lower-to-upper confidence interval."""
+
+    if pd.isna(lower) or pd.isna(upper):
+        return "Not available"
+    return f"{_format_measurement(lower, digits, suffix)} to {_format_measurement(upper, digits, suffix)}"
 
 
 def build_summary_table(summary: dict[str, float]) -> pd.DataFrame:
@@ -286,6 +308,139 @@ def format_stability_outlier_table(table: pd.DataFrame) -> pd.DataFrame:
     return formatted
 
 
+def format_accuracy_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format accuracy summary tables for display and export."""
+
+    formatted = table.copy()
+    if "N" in formatted.columns:
+        formatted["N"] = formatted["N"].map(lambda value: f"{int(value)}")
+    if {
+        "Mean Observed 95% CI Lower",
+        "Mean Observed 95% CI Upper",
+    }.issubset(formatted.columns):
+        formatted["Mean Observed Result ± 95% CI"] = formatted.apply(
+            lambda row: _format_interval(
+                row["Mean Observed 95% CI Lower"],
+                row["Mean Observed 95% CI Upper"],
+                2,
+            ),
+            axis=1,
+        )
+    if {"Bias 95% CI Lower", "Bias 95% CI Upper"}.issubset(formatted.columns):
+        formatted["Bias ± 95% CI"] = formatted.apply(
+            lambda row: _format_interval(
+                row["Bias 95% CI Lower"],
+                row["Bias 95% CI Upper"],
+                2,
+            ),
+            axis=1,
+        )
+    numeric_columns = [
+        "Expected Result",
+        "Mean Observed Result",
+        "SD",
+        "Difference",
+        "Absolute Difference",
+        "Absolute Bias",
+        "Mean Observed 95% CI Lower",
+        "Mean Observed 95% CI Upper",
+        "Bias 95% CI Lower",
+        "Bias 95% CI Upper",
+    ]
+    for column in numeric_columns:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 2)
+            )
+    percent_columns = ["Percent Bias", "Absolute Percent Bias", "Percent Recovery"]
+    for column in percent_columns:
+        if column in formatted.columns:
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 2, "%")
+            )
+    if "Recovery %" in formatted.columns:
+        formatted["Recovery %"] = formatted["Recovery %"].map(
+            lambda value: _format_measurement(value, 2, "%")
+        )
+    return formatted
+
+
+def format_accuracy_level_decision_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format level-specific accuracy decisions for display and export."""
+
+    formatted = format_accuracy_table(table)
+    preferred_columns = [
+        "Level",
+        "N",
+        "Mean Observed Result",
+        "Mean Observed Result ± 95% CI",
+        "Expected Result",
+        "Absolute Bias",
+        "Bias ± 95% CI",
+        "Percent Bias",
+        "Recovery %",
+        "Pass/Fail Status",
+    ]
+    return formatted[[column for column in preferred_columns if column in formatted.columns]]
+
+
+def format_accuracy_overall_summary(summary: dict[str, float | str]) -> pd.DataFrame:
+    """Format overall accuracy summary as a two-column table."""
+
+    rows = [
+        ("N", f"{int(summary['N'])}"),
+        ("Overall Mean Bias", f"{summary['Overall Mean Bias']:.2f}"),
+        ("Overall Mean Percent Bias", f"{summary['Overall Mean Percent Bias']:.2f}%"),
+        ("Maximum Absolute Bias", f"{summary['Maximum Absolute Bias']:.2f}"),
+        ("Maximum Absolute Percent Bias", f"{summary['Maximum Absolute Percent Bias']:.2f}%"),
+        ("Minimum Recovery", f"{summary['Minimum Recovery']:.2f}%"),
+        ("Maximum Recovery", f"{summary['Maximum Recovery']:.2f}%"),
+        ("Worst Level", str(summary["Worst Level"])),
+    ]
+    return pd.DataFrame(rows, columns=["Metric", "Value"])
+
+
+def format_accuracy_worst_case_summary(summary: dict[str, float | str]) -> pd.DataFrame:
+    """Format worst-case accuracy summary as a two-column table."""
+
+    rows = [
+        ("Worst Level", str(summary["Worst Level"])),
+        ("Highest Absolute Percent Bias", f"{summary['Highest Absolute Percent Bias']:.2f}%"),
+        ("Lowest Recovery", f"{summary['Lowest Recovery']:.2f}%"),
+        ("Lowest Recovery Level", str(summary["Lowest Recovery Level"])),
+        ("Highest Recovery", f"{summary['Highest Recovery']:.2f}%"),
+        ("Highest Recovery Level", str(summary["Highest Recovery Level"])),
+    ]
+    return pd.DataFrame(rows, columns=["Metric", "Value"])
+
+
+def format_accuracy_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFrame:
+    """Format accuracy acceptance criteria result values."""
+
+    formatted = criteria_table.copy()
+
+    def format_observed(row: pd.Series) -> str:
+        value = row["Observed Value"]
+        if pd.isna(value):
+            return ""
+        criterion = str(row["Criterion"]).lower()
+        if "percent" in criterion or "recovery" in criterion:
+            return f"{value:.2f}%"
+        return f"{value:.2f}"
+
+    formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
+    if "Pass/Fail Status" in formatted.columns:
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
+            {"BORDERLINE": "PASS WITH CAUTION"}
+        )
+    if "Borderline Status" in formatted.columns:
+        formatted["Borderline Status"] = formatted["Borderline Status"].map(
+            lambda value: "YES" if bool(value) else "NO"
+        )
+    return formatted
+
+
 def get_status_class(status: str) -> str:
     """Return a CSS class suffix for a validation status value."""
 
@@ -460,6 +615,89 @@ def stability_executive_summary_html(
             <div class="summary-card">
               <div class="summary-label">{escape(label)}</div>
               <div class="summary-value">{value_html}</div>
+            </div>
+            """
+        )
+    return '<div class="summary-grid">' + "".join(cards) + "</div>"
+
+
+def build_accuracy_executive_summary(
+    overall_summary: dict[str, float | str],
+    worst_case_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+    level_decision_table: pd.DataFrame | None = None,
+) -> dict[str, str]:
+    """Build display values for accuracy executive summary cards."""
+
+    caution_count = 0
+    failed_count = 0
+    if criteria_table is not None and not criteria_table.empty:
+        criteria_counts = count_statuses(criteria_table)
+        caution_count = criteria_counts["BORDERLINE"]
+        failed_count = criteria_counts["FAIL"]
+    levels_passing = "Not available"
+    levels_failing = "Not available"
+    if level_decision_table is not None and not level_decision_table.empty:
+        level_counts = count_statuses(level_decision_table)
+        levels_passing = str(level_counts["PASS"])
+        levels_failing = str(level_counts["FAIL"])
+
+    return {
+        "Overall Decision": decision,
+        "Overall Mean Percent Bias": f"{overall_summary['Overall Mean Percent Bias']:.2f}%",
+        "Maximum Absolute Percent Bias": f"{overall_summary['Maximum Absolute Percent Bias']:.2f}%",
+        "Lowest Recovery": f"{overall_summary['Minimum Recovery']:.2f}%",
+        "Highest Recovery": f"{overall_summary['Maximum Recovery']:.2f}%",
+        "Worst Performing Level": str(worst_case_summary["Worst Level"]),
+        "Levels Passing": levels_passing,
+        "Levels Failing": levels_failing,
+        "Borderline Criteria": str(caution_count),
+        "Failed Criteria": str(failed_count),
+    }
+
+
+def accuracy_executive_summary_html(
+    overall_summary: dict[str, float | str],
+    worst_case_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+    level_decision_table: pd.DataFrame | None = None,
+) -> str:
+    """Render accuracy executive summary cards for the HTML report."""
+
+    summary_values = build_accuracy_executive_summary(
+        overall_summary, worst_case_summary, decision, criteria_table, level_decision_table
+    )
+    cards = []
+    for label, value in summary_values.items():
+        value_html = status_badge_html(value) if label == "Overall Decision" else escape(value)
+        cards.append(
+            f"""
+            <div class="summary-card">
+              <div class="summary-label">{escape(label)}</div>
+              <div class="summary-value">{value_html}</div>
+            </div>
+            """
+        )
+    return '<div class="summary-grid">' + "".join(cards) + "</div>"
+
+
+def accuracy_criteria_dashboard_html(criteria_table: pd.DataFrame) -> str:
+    """Render accuracy criteria statuses as dashboard cards."""
+
+    cards = []
+    for _, row in criteria_table.iterrows():
+        display_status = normalize_status(row["Pass/Fail Status"])
+        cards.append(
+            f"""
+            <div class="summary-card">
+              <div class="summary-label">{escape(str(row['Criterion']))}</div>
+              <div class="summary-value">{status_badge_html(display_status)}</div>
+              <div style="color:#52606d;font-size:0.85rem;margin-top:8px;">
+                Observed: {escape(str(row['Observed Value']))}<br>
+                Limit: {escape(str(row['Acceptance Limit']))}
+              </div>
             </div>
             """
         )
@@ -735,6 +973,63 @@ def generate_stability_risk_assessment(
         f"{risk}: {summary} Maximum observed change was {max_change:.2f}%, "
         f"minimum recovery was {minimum_recovery:.2f}%, and maximum absolute bias was "
         f"{max_bias:.2f}. Borderline findings: {caution_count}; failed criteria: {fail_count}."
+    )
+
+
+def generate_accuracy_interpretation(
+    overall_summary: dict[str, float | str],
+    worst_case_summary: dict[str, float | str],
+    criteria: dict[str, float],
+    decision: str,
+    metadata: dict[str, object],
+) -> str:
+    """Generate a professional interpretation for accuracy study results."""
+
+    biomarker = metadata.get("Assay / Biomarker") or "the selected assay"
+    study_name = metadata.get("Study Name") or "this accuracy study"
+    design = metadata.get("Study Design") or "Replicate observations were compared with assigned expected values."
+    max_abs_percent_bias = overall_summary["Maximum Absolute Percent Bias"]
+    max_abs_bias = overall_summary["Maximum Absolute Bias"]
+    mean_percent_bias = overall_summary["Overall Mean Percent Bias"]
+    min_recovery = overall_summary["Minimum Recovery"]
+    max_recovery = overall_summary["Maximum Recovery"]
+    worst_level = worst_case_summary["Worst Level"]
+    if decision == "PASS":
+        conclusion = "The observed agreement supports preliminary assay accuracy across the evaluated levels."
+    elif decision == "PASS WITH CAUTION":
+        conclusion = "The observed agreement supports preliminary accuracy with caution; borderline findings should be reviewed before final approval."
+    else:
+        conclusion = "The observed agreement does not support preliminary assay accuracy under the selected criteria."
+
+    return build_sectioned_interpretation(
+        {
+            "Objective": (
+                f"{study_name} evaluated whether observed {biomarker} results agree "
+                "with expected or assigned target values."
+            ),
+            "What was evaluated": str(design),
+            "Results Summary": (
+                f"Overall mean percent bias was {mean_percent_bias:.2f}%. Maximum "
+                f"absolute bias was {max_abs_bias:.2f}, maximum absolute percent bias "
+                f"was {max_abs_percent_bias:.2f}%, and recovery ranged from "
+                f"{min_recovery:.2f}% to {max_recovery:.2f}%. The worst-performing "
+                f"level was {worst_level}."
+            ),
+            "Acceptance Criteria Assessment": (
+                f"User-defined preliminary criteria were maximum absolute bias "
+                f"{criteria['Maximum Absolute Bias']:.2f}, maximum absolute percent "
+                f"bias {criteria['Maximum Absolute Percent Bias']:.2f}%, and recovery "
+                f"from {criteria['Minimum Recovery']:.2f}% to "
+                f"{criteria['Maximum Recovery']:.2f}% with a "
+                f"{criteria['Borderline Zone']:.2f}% borderline zone. The overall "
+                f"criteria-based decision is {decision}."
+            ),
+            "Scientific Interpretation": conclusion,
+            "Preliminary Conclusion": (
+                f"The overall preliminary decision is {decision}. This interpretation "
+                "is informational only and does not replace formal laboratory approval."
+            ),
+        }
     )
 
 
@@ -1510,6 +1805,197 @@ def build_stability_html_report(
 
   <h2>Analyst Notes</h2>
   <p><strong>Notes:</strong> {notes}</p>
+  <p><strong>Deviations:</strong> {deviations}</p>
+
+  <h2>Preliminary Conclusion</h2>
+  <p>{conclusions}</p>
+
+  <h2>Signature Section</h2>
+  <table>
+    <tr><th>Prepared by</th><td></td><th>Date</th><td></td></tr>
+    <tr><th>Reviewed by</th><td></td><th>Date</th><td></td></tr>
+    <tr><th>Approved by</th><td></td><th>Date</th><td></td></tr>
+  </table>
+</body>
+</html>
+"""
+
+
+def build_accuracy_html_report(
+    accuracy_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    level_decision_table: pd.DataFrame,
+    worst_case_summary: dict[str, float | str],
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+    visualization_html: dict[str, str] | None = None,
+) -> str:
+    """Build an accuracy study validation summary report."""
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    metadata_html = _metadata_to_html(metadata)
+    laboratory_html = _laboratory_documentation_to_html(metadata)
+    formatted_criteria = format_accuracy_criteria_table(criteria_table)
+    formatted_level_decisions = format_accuracy_level_decision_table(
+        level_decision_table
+    )
+    executive_summary_html = accuracy_executive_summary_html(
+        overall_summary,
+        worst_case_summary,
+        decision,
+        formatted_criteria,
+        level_decision_table,
+    )
+    criteria_dashboard_html = accuracy_criteria_dashboard_html(formatted_criteria)
+    overall_html = format_accuracy_overall_summary(overall_summary).to_html(index=False)
+    accuracy_html = format_accuracy_table(accuracy_summary).to_html(index=False)
+    level_decisions_html = criteria_table_to_badged_html(formatted_level_decisions)
+    bias_html = format_accuracy_table(bias_summary).to_html(index=False)
+    recovery_html = format_accuracy_table(recovery_summary).to_html(index=False)
+    worst_case_html = format_accuracy_worst_case_summary(worst_case_summary).to_html(index=False)
+    criteria_html = criteria_table_to_badged_html(formatted_criteria)
+    figures_html = ""
+    for title, figure_html in (visualization_html or {}).items():
+        figures_html += f"<h3>{escape(title)}</h3>{figure_html}"
+
+    notes = escape(str(metadata.get("Notes") or "None documented."))
+    deviations = escape(str(metadata.get("Deviations") or "None documented."))
+    conclusions = escape(str(metadata.get("Conclusions") or "Pending final review."))
+    interpretation_html = "<br><br>".join(
+        escape(paragraph) for paragraph in interpretation.split("\n\n")
+    )
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Accuracy Study Validation Report</title>
+  <style>
+    body {{
+      color: #1f2933;
+      font-family: Arial, sans-serif;
+      line-height: 1.5;
+      margin: 40px;
+    }}
+    h1, h2, h3 {{ color: #102a43; }}
+    table {{
+      border-collapse: collapse;
+      margin: 12px 0 28px;
+      width: 100%;
+    }}
+    th, td {{
+      border: 1px solid #d9e2ec;
+      padding: 8px;
+      text-align: right;
+    }}
+    th {{ background: #f0f4f8; }}
+    td:first-child, th:first-child {{ text-align: left; }}
+    .summary-grid {{
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 14px 0 28px;
+    }}
+    .summary-card {{
+      background: #ffffff;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, 0.04);
+      padding: 14px 16px;
+    }}
+    .summary-label {{
+      color: #52606d;
+      font-size: 0.78rem;
+      font-weight: bold;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }}
+    .summary-value {{
+      color: #102a43;
+      font-size: 1.25rem;
+      font-weight: bold;
+    }}
+    .note {{
+      background: #f7f9fb;
+      border-left: 4px solid #2a6f97;
+      padding: 12px 16px;
+    }}
+    .status-badge {{
+      border-radius: 999px;
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: bold;
+      line-height: 1;
+      padding: 6px 10px;
+    }}
+    .status-pass {{
+      background: #e3f9e5;
+      color: #1f7a1f;
+    }}
+    .status-borderline {{
+      background: #fff8c5;
+      color: #946200;
+    }}
+    .status-fail {{
+      background: #ffe3e3;
+      color: #c92a2a;
+    }}
+    @media (max-width: 800px) {{
+      .summary-grid {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
+<body>
+  <h1>Accuracy Study Validation Report</h1>
+  <p><strong>Generated:</strong> {generated_at}</p>
+
+  <h2>Study Metadata</h2>
+  {metadata_html}
+
+  <h2>Laboratory Documentation</h2>
+  {laboratory_html}
+
+  <h2>Acceptance Criteria</h2>
+  <p>User-defined preliminary screening criteria: maximum absolute bias {criteria['Maximum Absolute Bias']:.2f}; maximum absolute percent bias {criteria['Maximum Absolute Percent Bias']:.2f}%; recovery {criteria['Minimum Recovery']:.2f}% to {criteria['Maximum Recovery']:.2f}%; borderline zone {criteria['Borderline Zone']:.2f}%.</p>
+  {criteria_dashboard_html}
+
+  <h2>Executive Summary</h2>
+  {executive_summary_html}
+  {overall_html}
+
+  <h2>Accuracy Results</h2>
+  <h3>Level-Specific Decision Table</h3>
+  {level_decisions_html}
+  <h3>Accuracy Summary</h3>
+  {accuracy_html}
+
+  <h2>Acceptance Criteria Results</h2>
+  {criteria_html}
+
+  <h2>Bias Analysis</h2>
+  {bias_html}
+
+  <h2>Recovery Analysis</h2>
+  {recovery_html}
+
+  <h2>Worst-Case Performance</h2>
+  {worst_case_html}
+
+  <h2>Visualizations</h2>
+  {figures_html}
+
+  <h2>Interpretation</h2>
+  <p class="note">{interpretation_html}</p>
+
+  <h2>Analyst Notes</h2>
+  <p><strong>Notes:</strong> {notes}</p>
+
+  <h2>Deviations</h2>
   <p><strong>Deviations:</strong> {deviations}</p>
 
   <h2>Preliminary Conclusion</h2>
