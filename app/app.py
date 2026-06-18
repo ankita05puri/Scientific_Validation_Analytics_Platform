@@ -15,13 +15,17 @@ from analysis import (
     evaluate_acceptance_criteria,
     evaluate_linearity_criteria,
     evaluate_precision_criteria,
+    evaluate_stability_criteria,
     get_top_outliers,
     run_linearity_study,
     run_precision_study,
     run_method_comparison,
+    run_stability_study,
 )
 from plots import (
+    create_condition_difference_plot,
     create_difference_plot,
+    create_individual_stability_plot,
     create_linearity_plot,
     create_linearity_residual_plot,
     create_percent_bias_histogram,
@@ -30,6 +34,10 @@ from plots import (
     create_precision_cv_bar_chart,
     create_precision_run_chart,
     create_scatter_plot,
+    create_stability_percent_change_plot,
+    create_stability_recovery_plot,
+    create_stability_trend_plot,
+    create_stability_bias_plot,
 )
 from report import (
     build_criteria_table,
@@ -37,6 +45,9 @@ from report import (
     build_linearity_executive_summary,
     build_linearity_html_report,
     build_precision_html_report,
+    build_stability_executive_summary,
+    build_stability_html_report,
+    build_stability_pdf_report,
     build_summary_table,
     criteria_table_to_badged_html,
     format_linearity_criteria_table,
@@ -45,9 +56,17 @@ from report import (
     format_linearity_summary_table,
     format_precision_criteria_table,
     format_precision_summary_table,
+    format_stability_criteria_table,
+    format_stability_overall_summary,
+    format_stability_outlier_table,
+    format_storage_condition_comparison_table,
+    format_stability_table,
     generate_interpretation,
     generate_linearity_interpretation,
     generate_precision_interpretation,
+    generate_stability_risk_assessment,
+    generate_storage_condition_comparison_interpretation,
+    generate_stability_interpretation,
     get_linearity_worst_case,
     status_badge_html,
 )
@@ -59,6 +78,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "hba1c_method_comparison.csv"
 PRECISION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "precision_study_hba1c.csv"
 LINEARITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "linearity_study_hba1c.csv"
+STABILITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "stability_study_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
@@ -213,6 +233,38 @@ def render_linearity_executive_summary(
         render_metric_card("Analytical Range Tested", summary_values["Analytical Range Tested"])
 
 
+def render_stability_executive_summary(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> None:
+    """Render executive summary cards for a completed stability study."""
+
+    summary_values = build_stability_executive_summary(
+        overall_summary, decision, criteria_table
+    )
+    st.subheader("Executive Summary")
+    first_row = st.columns(4)
+    with first_row[0]:
+        render_metric_card("Overall Decision", summary_values["Overall Decision"], status=decision)
+    with first_row[1]:
+        render_metric_card("Maximum Observed Change", summary_values["Maximum Observed Change"])
+    with first_row[2]:
+        render_metric_card("Minimum Recovery", summary_values["Minimum Recovery"])
+    with first_row[3]:
+        render_metric_card("Maximum Absolute Bias", summary_values["Maximum Absolute Bias"])
+
+    second_row = st.columns(4)
+    with second_row[0]:
+        render_metric_card("Worst Timepoint", summary_values["Worst Timepoint"])
+    with second_row[1]:
+        render_metric_card("Worst Storage Condition", summary_values["Worst Storage Condition"])
+    with second_row[2]:
+        render_metric_card("Borderline Criteria", summary_values["Borderline Criteria"])
+    with second_row[3]:
+        render_metric_card("Failed Criteria", summary_values["Failed Criteria"])
+
+
 def render_linearity_equation_card(regression_summary: dict[str, float | str]) -> None:
     """Render the regression equation card for linearity results."""
 
@@ -347,11 +399,14 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     is_precision = study_type == "Precision Study"
     is_linearity = study_type == "Linearity Study"
+    is_stability = study_type == "Stability Study"
     default_study_name = (
         "HbA1c Precision Study"
         if is_precision
         else "HbA1c Linearity Study"
         if is_linearity
+        else "HbA1c Stability Study"
+        if is_stability
         else "HbA1c Method Comparison Study"
     )
     default_objective = (
@@ -359,6 +414,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_precision
         else "Evaluate proportionality of observed HbA1c results across the analytical range."
         if is_linearity
+        else "Evaluate stability of HbA1c measurements over predefined storage conditions and timepoints."
+        if is_stability
         else "Evaluate agreement between candidate and reference results."
     )
     default_design = (
@@ -366,6 +423,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_precision
         else "Expected HbA1c levels measured in replicate across the reportable analytical range."
         if is_linearity
+        else "Repeated measurements collected at baseline and subsequent timepoints under controlled storage conditions."
+        if is_stability
         else "Paired specimen comparison using reference and candidate measurements."
     )
 
@@ -400,9 +459,15 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     reference_method = ""
     candidate_method = ""
-    if is_precision or is_linearity:
+    if is_precision or is_linearity or is_stability:
         units = st.text_input("Units", value="%")
-        key_prefix = "linearity" if is_linearity else "precision"
+        key_prefix = (
+            "stability"
+            if is_stability
+            else "linearity"
+            if is_linearity
+            else "precision"
+        )
         instrument_name = instrument_id = laboratory_site = ""
         reagent_lot = calibrator_lot = qc_lot = operator_name = ""
         with st.expander("Laboratory Documentation", expanded=False):
@@ -450,10 +515,10 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
-    if not (is_precision or is_linearity):
+    if not (is_precision or is_linearity or is_stability):
         metadata["Reference Method"] = reference_method
         metadata["Candidate Method"] = candidate_method
-    elif is_precision or is_linearity:
+    elif is_precision or is_linearity or is_stability:
         metadata.update(
             {
                 "Instrument Name": instrument_name,
@@ -653,6 +718,56 @@ def render_linearity_criteria() -> dict[str, float]:
     }
 
 
+def render_stability_criteria() -> dict[str, float]:
+    """Render user-defined preliminary stability acceptance criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are user-defined preliminary screening thresholds, not regulatory approval."
+    )
+    row = st.columns(4)
+    with row[0]:
+        max_percent_change = st.number_input(
+            "Maximum acceptable percent change from baseline",
+            min_value=0.0,
+            value=10.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[1]:
+        min_recovery = st.number_input(
+            "Minimum acceptable recovery %",
+            min_value=0.0,
+            max_value=150.0,
+            value=90.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[2]:
+        max_abs_bias = st.number_input(
+            "Maximum acceptable absolute bias",
+            min_value=0.0,
+            value=0.50,
+            step=0.05,
+            format="%.2f",
+        )
+    with row[3]:
+        borderline_zone = st.number_input(
+            "Borderline zone (%)",
+            min_value=0.0,
+            value=2.0,
+            step=0.5,
+            format="%.2f",
+        )
+
+    return {
+        "Maximum Percent Change": max_percent_change,
+        "Minimum Recovery": min_recovery,
+        "Maximum Absolute Bias": max_abs_bias,
+        "Borderline Zone": borderline_zone,
+    }
+
+
 def optional_column_selectbox(
     label: str, columns: list[str], default_column: str | None = None
 ) -> str | None:
@@ -720,6 +835,47 @@ def build_linearity_summary_csv(
     criteria_table.to_csv(buffer, index=False)
     buffer.write("\nRegression Summary\n")
     regression_summary.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def build_stability_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    overall_summary: pd.DataFrame,
+    stability_summary: pd.DataFrame,
+    timepoint_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    condition_comparison: pd.DataFrame,
+    outlier_table: pd.DataFrame,
+    risk_assessment: str,
+) -> str:
+    """Build a sectioned CSV summary for stability study documentation."""
+
+    buffer = StringIO()
+    pd.DataFrame(
+        [{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]
+    ).to_csv(buffer, index=False)
+    buffer.write("\nOverall Stability Summary\n")
+    overall_summary.to_csv(buffer, index=False)
+    buffer.write("\nAcceptance Criteria Results\n")
+    criteria_table.to_csv(buffer, index=False)
+    buffer.write("\nStability Summary\n")
+    stability_summary.to_csv(buffer, index=False)
+    buffer.write("\nTimepoint Analysis\n")
+    timepoint_summary.to_csv(buffer, index=False)
+    buffer.write("\nRecovery Analysis\n")
+    recovery_summary.to_csv(buffer, index=False)
+    buffer.write("\nBias Analysis\n")
+    bias_summary.to_csv(buffer, index=False)
+    if not condition_comparison.empty:
+        buffer.write("\nStorage Condition Comparison\n")
+        condition_comparison.to_csv(buffer, index=False)
+    if not outlier_table.empty:
+        buffer.write("\nPotential Stability Outliers\n")
+        outlier_table.to_csv(buffer, index=False)
+    buffer.write("\nRisk Assessment\n")
+    pd.DataFrame([{"Risk Assessment": risk_assessment}]).to_csv(buffer, index=False)
     return buffer.getvalue()
 
 
@@ -1086,7 +1242,10 @@ def render_linearity_workspace(metadata: dict[str, object]) -> None:
             st.plotly_chart(recovery_plot, width="stretch")
 
         st.subheader("Analyzed Data")
-        st.dataframe(result.analyzed_data, width="stretch")
+        st.dataframe(
+            result.analyzed_data.drop(columns=["Timepoint Sort"], errors="ignore"),
+            width="stretch",
+        )
 
         html_report = build_linearity_html_report(
             result.level_summary,
@@ -1131,6 +1290,326 @@ def render_linearity_workspace(metadata: dict[str, object]) -> None:
             )
 
 
+def render_stability_workspace(metadata: dict[str, object]) -> None:
+    """Render the Stability Study workflow."""
+
+    criteria = render_stability_criteria()
+
+    uploaded_file = st.file_uploader(
+        "Upload stability study data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload baseline and timepoint results for sample stability analysis.",
+    )
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c stability study dataset",
+        value=uploaded_file is None,
+    )
+
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(STABILITY_SAMPLE_DATA_PATH)
+
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+
+    st.subheader("Data Preview")
+    st.dataframe(data.head(20), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    all_columns = list(data.columns)
+    if len(numeric_columns) < 1:
+        st.error("At least one numeric result column is required for stability analysis.")
+        st.stop()
+
+    st.subheader("Column Selection")
+    first_row = st.columns(3)
+    with first_row[0]:
+        sample_id_column = st.selectbox(
+            "Sample ID column",
+            all_columns,
+            index=all_columns.index("Sample ID") if "Sample ID" in all_columns else 0,
+        )
+    with first_row[1]:
+        timepoint_column = st.selectbox(
+            "Timepoint column",
+            all_columns,
+            index=all_columns.index("Timepoint") if "Timepoint" in all_columns else 0,
+        )
+    with first_row[2]:
+        result_column = st.selectbox(
+            "Result column",
+            numeric_columns,
+            index=numeric_columns.index("Result") if "Result" in numeric_columns else 0,
+        )
+
+    second_row = st.columns(4)
+    with second_row[0]:
+        storage_condition_column = optional_column_selectbox(
+            "Storage Condition column",
+            all_columns,
+            "Storage Condition" if "Storage Condition" in all_columns else None,
+        )
+    with second_row[1]:
+        units_column = optional_column_selectbox(
+            "Units column",
+            all_columns,
+            "Units" if "Units" in all_columns else None,
+        )
+    with second_row[2]:
+        replicate_column = optional_column_selectbox(
+            "Replicate column",
+            all_columns,
+            "Replicate" if "Replicate" in all_columns else None,
+        )
+    with second_row[3]:
+        include_column = optional_column_selectbox(
+            "Include in Analysis column",
+            all_columns,
+            "Include in Analysis" if "Include in Analysis" in all_columns else None,
+        )
+
+    run_analysis = st.button("Run Stability Analysis", type="primary")
+    if run_analysis:
+        try:
+            result = run_stability_study(
+                data,
+                sample_id_column,
+                timepoint_column,
+                result_column,
+                storage_condition_column,
+                units_column,
+                replicate_column,
+                include_column,
+            )
+        except Exception as exc:
+            st.error(f"Stability analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_stability_criteria(
+            result.overall_summary,
+            max_percent_change=criteria["Maximum Percent Change"],
+            min_recovery=criteria["Minimum Recovery"],
+            max_abs_bias=criteria["Maximum Absolute Bias"],
+            borderline_zone=criteria["Borderline Zone"],
+        )
+        decision = str(criteria_result["decision"])
+        criteria_table = build_criteria_table(criteria_result)
+        display_criteria = format_stability_criteria_table(criteria_table)
+        display_overall = format_stability_overall_summary(result.overall_summary)
+        display_stability = format_stability_table(result.stability_summary)
+        display_timepoint = format_stability_table(result.timepoint_summary)
+        display_recovery = format_stability_table(result.recovery_summary)
+        display_bias = format_stability_table(result.bias_summary)
+        display_condition_comparison = format_storage_condition_comparison_table(
+            result.condition_comparison
+        )
+        display_outliers = format_stability_outlier_table(result.outlier_table)
+        condition_interpretation = generate_storage_condition_comparison_interpretation(
+            result.condition_comparison
+        )
+        risk_assessment = generate_stability_risk_assessment(
+            result.overall_summary,
+            display_criteria,
+            criteria,
+        )
+        interpretation = generate_stability_interpretation(
+            result.overall_summary,
+            result.timepoint_summary,
+            criteria,
+            decision,
+            metadata,
+        )
+
+        render_stability_executive_summary(
+            result.overall_summary, decision, display_criteria
+        )
+
+        st.subheader("Stability Summary Table")
+        st.dataframe(display_overall, width="stretch")
+        st.dataframe(display_stability, width="stretch")
+
+        st.subheader("Acceptance Criteria Results")
+        render_badged_criteria_table(display_criteria)
+
+        st.subheader("Timepoint Summary Table")
+        st.dataframe(display_timepoint, width="stretch")
+
+        summary_left, summary_right = st.columns(2)
+        with summary_left:
+            st.subheader("Recovery Summary")
+            st.dataframe(display_recovery, width="stretch")
+        with summary_right:
+            st.subheader("Bias Summary")
+            st.dataframe(display_bias, width="stretch")
+
+        st.subheader("Storage Condition Comparison")
+        st.info(condition_interpretation)
+        if result.condition_comparison.empty:
+            st.info("At least two storage conditions are required for direct comparison.")
+        else:
+            st.dataframe(display_condition_comparison, width="stretch")
+
+        st.subheader("Potential Stability Outliers")
+        if result.outlier_table.empty:
+            st.info("No potential stability outliers were available for review.")
+        else:
+            st.dataframe(display_outliers, width="stretch")
+
+        st.subheader("Risk Assessment")
+        st.info(risk_assessment)
+
+        st.subheader("Interpretation")
+        st.info(interpretation)
+
+        st.subheader("Visualizations")
+        trend_plot = create_stability_trend_plot(
+            result.timepoint_summary, result.overall_summary["Baseline Mean"]
+        )
+        percent_change_plot = create_stability_percent_change_plot(
+            result.timepoint_summary,
+            criteria["Maximum Percent Change"],
+            criteria["Borderline Zone"],
+        )
+        stability_recovery_plot = create_stability_recovery_plot(
+            result.timepoint_summary,
+            criteria["Minimum Recovery"],
+            criteria["Borderline Zone"],
+        )
+        stability_bias_plot = create_stability_bias_plot(
+            result.timepoint_summary,
+            criteria["Maximum Absolute Bias"],
+            criteria["Borderline Zone"],
+        )
+        individual_plot = create_individual_stability_plot(result.analyzed_data)
+        condition_difference_plot = (
+            create_condition_difference_plot(result.condition_comparison)
+            if not result.condition_comparison.empty
+            else None
+        )
+
+        st.plotly_chart(trend_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(percent_change_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(stability_recovery_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(stability_bias_plot, width="stretch")
+        with chart_right:
+            if condition_difference_plot is not None:
+                st.plotly_chart(condition_difference_plot, width="stretch")
+        st.plotly_chart(individual_plot, width="stretch")
+
+        st.subheader("Analyzed Data")
+        st.dataframe(
+            result.analyzed_data.drop(columns=["Timepoint Sort"], errors="ignore"),
+            width="stretch",
+        )
+
+        html_report = build_stability_html_report(
+            stability_summary=result.stability_summary,
+            timepoint_summary=result.timepoint_summary,
+            recovery_summary=result.recovery_summary,
+            bias_summary=result.bias_summary,
+            condition_comparison=result.condition_comparison,
+            outlier_table=result.outlier_table,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            risk_assessment=risk_assessment,
+            condition_interpretation=condition_interpretation,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+            visualization_html={
+                "Stability Trend Plot": trend_plot.to_html(
+                    full_html=False, include_plotlyjs="cdn"
+                ),
+                "Percent Change Plot": percent_change_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Recovery Plot": stability_recovery_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Bias Plot": stability_bias_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                **(
+                    {
+                        "Condition Difference Plot": condition_difference_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        )
+                    }
+                    if condition_difference_plot is not None
+                    else {}
+                ),
+                "Individual Sample Stability Plot": individual_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+            },
+        )
+
+        pdf_report = build_stability_pdf_report(
+            stability_summary=result.stability_summary,
+            timepoint_summary=result.timepoint_summary,
+            recovery_summary=result.recovery_summary,
+            bias_summary=result.bias_summary,
+            condition_comparison=result.condition_comparison,
+            outlier_table=result.outlier_table,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            risk_assessment=risk_assessment,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+        )
+
+        export_left, export_middle, export_right = st.columns(3)
+        with export_left:
+            st.download_button(
+                "Download stability summary CSV",
+                data=build_stability_summary_csv(
+                    metadata,
+                    display_criteria,
+                    display_overall,
+                    display_stability,
+                    display_timepoint,
+                    display_recovery,
+                    display_bias,
+                    display_condition_comparison,
+                    display_outliers,
+                    risk_assessment,
+                ).encode("utf-8"),
+                file_name="stability_summary.csv",
+                mime="text/csv",
+            )
+        with export_middle:
+            st.download_button(
+                "Download stability report HTML",
+                data=html_report.encode("utf-8"),
+                file_name="stability_study_report.html",
+                mime="text/html",
+            )
+        with export_right:
+            st.download_button(
+                "Download Stability Report PDF",
+                data=pdf_report,
+                file_name="stability_study_report.pdf",
+                mime="application/pdf",
+            )
+
+
 def main() -> None:
     """Render the Streamlit interface and run selected analyses."""
 
@@ -1164,6 +1643,11 @@ def main() -> None:
     if study_type == "Linearity Study":
         metadata = render_study_documentation(study_type)
         render_linearity_workspace(metadata)
+        st.stop()
+
+    if study_type == "Stability Study":
+        metadata = render_study_documentation(study_type)
+        render_stability_workspace(metadata)
         st.stop()
 
     if study_type != "Method Comparison":

@@ -1,0 +1,49 @@
+Sample ID,Timepoint,Result,Storage Condition,Units,Replicate,Include in Analysis
+S1,Baseline,6.2,Refrigerated,%,1,Yes
+S1,Day 1,6.2,Refrigerated,%,1,Yes
+S1,Day 7,6.1,Refrigerated,%,1,Yes
+S1,Day 14,6.0,Refrigerated,%,1,Yes
+S2,Baseline,5.8,Refrigerated,%,1,Yes
+S2,Day 1,5.8,Refrigerated,%,1,Yes
+S2,Day 7,5.7,Refrigerated,%,1,Yes
+S2,Day 14,5.6,Refrigerated,%,1,Yes
+S3,Baseline,7.1,Refrigerated,%,1,Yes
+S3,Day 1,7.0,Refrigerated,%,1,Yes
+S3,Day 7,6.9,Refrigerated,%,1,Yes
+S3,Day 14,6.8,Refrigerated,%,1,Yes
+S4,Baseline,8.4,Refrigerated,%,1,Yes
+S4,Day 1,8.4,Refrigerated,%,1,Yes
+S4,Day 7,8.2,Refrigerated,%,1,Yes
+S4,Day 14,8.1,Refrigerated,%,1,Yes
+S5,Baseline,6.7,Refrigerated,%,1,Yes
+S5,Day 1,6.6,Refrigerated,%,1,Yes
+S5,Day 7,6.5,Refrigerated,%,1,Yes
+S5,Day 14,6.4,Refrigerated,%,1,Yes
+S6,Baseline,9.2,Refrigerated,%,1,Yes
+S6,Day 1,9.1,Refrigerated,%,1,Yes
+S6,Day 7,9.0,Refrigerated,%,1,Yes
+S6,Day 14,8.9,Refrigerated,%,1,Yes
+S7,Baseline,5.4,Room Temperature,%,1,Yes
+S7,Day 1,5.3,Room Temperature,%,1,Yes
+S7,Day 7,5.2,Room Temperature,%,1,Yes
+S7,Day 14,5.1,Room Temperature,%,1,Yes
+S8,Baseline,6.0,Room Temperature,%,1,Yes
+S8,Day 1,5.9,Room Temperature,%,1,Yes
+S8,Day 7,5.8,Room Temperature,%,1,Yes
+S8,Day 14,5.7,Room Temperature,%,1,Yes
+S9,Baseline,7.6,Room Temperature,%,1,Yes
+S9,Day 1,7.5,Room Temperature,%,1,Yes
+S9,Day 7,7.4,Room Temperature,%,1,Yes
+S9,Day 14,7.2,Room Temperature,%,1,Yes
+S10,Baseline,8.8,Room Temperature,%,1,Yes
+S10,Day 1,8.7,Room Temperature,%,1,Yes
+S10,Day 7,8.5,Room Temperature,%,1,Yes
+S10,Day 14,8.4,Room Temperature,%,1,Yes
+S11,Baseline,6.5,Room Temperature,%,1,Yes
+S11,Day 1,6.4,Room Temperature,%,1,Yes
+S11,Day 7,6.3,Room Temperature,%,1,Yes
+S11,Day 14,6.2,Room Temperature,%,1,Yes
+S12,Baseline,9.0,Room Temperature,%,1,Yes
+S12,Day 1,8.9,Room Temperature,%,1,Yes
+S12,Day 7,8.7,Room Temperature,%,1,Yes
+S12,Day 14,8.6,Room Temperature,%,1,Yes
