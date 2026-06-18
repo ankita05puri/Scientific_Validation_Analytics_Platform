@@ -120,6 +120,21 @@ DETECTION_CAPABILITY_REPORT_SECTIONS = (
 )
 
 
+DBS_REPORT_SECTIONS = (
+    "Study Metadata",
+    "Executive Summary",
+    "Bias Analysis",
+    "Recovery Analysis",
+    "Correlation Analysis",
+    "Agreement Analysis",
+    "Acceptance Criteria Results",
+    "Sample-Level Review",
+    "Visualizations",
+    "Scientific Interpretation",
+    "Signature Section",
+)
+
+
 STUDY_TYPES: dict[str, StudyTypeConfig] = {
     "Method Comparison": StudyTypeConfig(
         name="Method Comparison",
@@ -306,11 +321,35 @@ STUDY_TYPES: dict[str, StudyTypeConfig] = {
     ),
     "DBS Validation": StudyTypeConfig(
         name="DBS Validation",
-        description="Placeholder module for dried blood spot validation workflows.",
-        metrics=("Correction factor", "Bias", "Recovery", "Agreement"),
-        acceptance_criteria=("DBS bias limits", "Recovery limits"),
-        visualizations=("DBS correction plots",),
-        report_sections=STANDARD_REPORT_SECTIONS,
+        description="Dried blood spot specimen equivalency workflow for DBS versus reference specimens.",
+        metrics=(
+            "Mean bias",
+            "Median bias",
+            "Percent bias",
+            "Recovery",
+            "Pearson correlation",
+            "R²",
+            "Slope",
+            "Intercept",
+            "Limits of agreement",
+            "Sample-level outliers",
+        ),
+        acceptance_criteria=(
+            "Maximum percent bias",
+            "Recovery range",
+            "Minimum R²",
+            "Maximum mean difference",
+            "Pass with caution borderline zone",
+        ),
+        visualizations=(
+            "DBS vs reference scatter plot",
+            "Bland-Altman plot",
+            "Recovery by sample",
+            "Percent bias by sample",
+            "Distribution comparison",
+        ),
+        report_sections=DBS_REPORT_SECTIONS,
+        implemented=True,
     ),
     "Microtainer Validation": StudyTypeConfig(
         name="Microtainer Validation",

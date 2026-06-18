@@ -114,6 +114,29 @@ class DetectionCapabilityResult:
     include_column: str | None = None
 
 
+@dataclass(frozen=True)
+class DBSValidationResult:
+    """Container for cleaned DBS equivalency data and validation summaries."""
+
+    analyzed_data: pd.DataFrame
+    study_summary: pd.DataFrame
+    bias_summary: pd.DataFrame
+    recovery_summary: pd.DataFrame
+    correlation_summary: pd.DataFrame
+    agreement_summary: pd.DataFrame
+    hematocrit_summary: pd.DataFrame
+    delay_summary: pd.DataFrame
+    instrument_summary: pd.DataFrame
+    outlier_review: pd.DataFrame
+    scientific_findings: list[str]
+    sample_review: pd.DataFrame
+    overall_summary: dict[str, float | str]
+    sample_id_column: str
+    reference_column: str
+    dbs_column: str
+    include_column: str | None = None
+
+
 def _safe_float(value: float) -> float:
     """Return a plain float, preserving missing values as NaN."""
 
@@ -2148,5 +2171,619 @@ def run_detection_capability_study(
         result_column=result_column,
         replicate_column=replicate_column,
         units_column=units_column,
+        include_column=include_column,
+    )
+
+
+def prepare_dbs_validation_data(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    reference_column: str,
+    dbs_column: str,
+    include_column: str | None = None,
+) -> pd.DataFrame:
+    """Clean paired DBS and reference specimen results."""
+
+    selected_columns = [sample_id_column, reference_column, dbs_column]
+    if include_column:
+        selected_columns.append(include_column)
+    optional_columns = [
+        column
+        for column in [
+            "Collection Date",
+            "Extraction Date",
+            "Hematocrit",
+            "Replicate",
+            "Instrument",
+        ]
+        if column in data.columns and column not in selected_columns
+    ]
+    selected_columns.extend(optional_columns)
+    analyzed = data[selected_columns].copy()
+    if include_column:
+        include_mask = analyzed[include_column].astype(str).str.strip().str.lower()
+        analyzed = analyzed[include_mask.isin(["yes", "y", "true", "1", "include"])]
+    analyzed = analyzed.rename(
+        columns={
+            sample_id_column: "Sample ID",
+            reference_column: "Reference Result",
+            dbs_column: "DBS Result",
+        }
+    )
+    analyzed["Reference Result"] = pd.to_numeric(
+        analyzed["Reference Result"], errors="coerce"
+    )
+    analyzed["DBS Result"] = pd.to_numeric(analyzed["DBS Result"], errors="coerce")
+    analyzed = analyzed.dropna(subset=["Reference Result", "DBS Result"]).reset_index(
+        drop=True
+    )
+    analyzed["Difference"] = analyzed["DBS Result"] - analyzed["Reference Result"]
+    analyzed["Mean of Methods"] = (
+        analyzed["DBS Result"] + analyzed["Reference Result"]
+    ) / 2
+    analyzed["Bias"] = analyzed["Difference"]
+    analyzed["Absolute Bias"] = analyzed["Difference"].abs()
+    analyzed["Percent Bias"] = np.where(
+        analyzed["Reference Result"] != 0,
+        (analyzed["Difference"] / analyzed["Reference Result"]) * 100,
+        np.nan,
+    )
+    analyzed["Percent Bias"] = analyzed["Percent Bias"].replace(
+        [np.inf, -np.inf], np.nan
+    )
+    analyzed["Absolute Percent Bias"] = analyzed["Percent Bias"].abs()
+    analyzed["Recovery %"] = np.where(
+        analyzed["Reference Result"] != 0,
+        (analyzed["DBS Result"] / analyzed["Reference Result"]) * 100,
+        np.nan,
+    )
+    analyzed["Recovery %"] = analyzed["Recovery %"].replace([np.inf, -np.inf], np.nan)
+    if "Hematocrit" in analyzed.columns:
+        analyzed["Hematocrit"] = pd.to_numeric(analyzed["Hematocrit"], errors="coerce")
+    if {"Collection Date", "Extraction Date"}.issubset(analyzed.columns):
+        collection_date = pd.to_datetime(analyzed["Collection Date"], errors="coerce")
+        extraction_date = pd.to_datetime(analyzed["Extraction Date"], errors="coerce")
+        analyzed["Extraction Delay (days)"] = (
+            extraction_date - collection_date
+        ).dt.days
+        analyzed["Delay Category"] = pd.cut(
+            analyzed["Extraction Delay (days)"],
+            bins=[-1, 0, 1, 3, np.inf],
+            labels=["Same Day", "1 Day", "2-3 Days", "4+ Days"],
+        ).astype("object")
+    return analyzed
+
+
+def calculate_dbs_validation_summary(
+    analyzed_data: pd.DataFrame,
+    max_percent_bias: float,
+    min_recovery: float,
+    max_recovery: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float | str]]:
+    """Calculate DBS validation summary, bias, recovery, regression, and agreement."""
+
+    if analyzed_data.empty:
+        raise ValueError("No valid paired DBS/reference rows are available for analysis.")
+
+    reference = analyzed_data["Reference Result"]
+    dbs = analyzed_data["DBS Result"]
+    difference = analyzed_data["Difference"]
+    percent_bias = analyzed_data["Percent Bias"].dropna()
+    recovery = analyzed_data["Recovery %"].dropna()
+    n = int(len(analyzed_data))
+
+    if n >= 2 and reference.nunique() > 1 and dbs.nunique() > 1:
+        correlation_r = float(np.corrcoef(reference, dbs)[0, 1])
+        slope, intercept = np.polyfit(reference, dbs, 1)
+    else:
+        correlation_r = np.nan
+        slope = np.nan
+        intercept = np.nan
+    r_squared = correlation_r**2 if not pd.isna(correlation_r) else np.nan
+
+    sd_difference = difference.std(ddof=1)
+    mean_difference = difference.mean()
+    upper_loa = mean_difference + (1.96 * sd_difference)
+    lower_loa = mean_difference - (1.96 * sd_difference)
+
+    worst_bias_row = analyzed_data.sort_values(
+        "Absolute Percent Bias", ascending=False
+    ).iloc[0]
+    lowest_recovery_row = analyzed_data.sort_values("Recovery %", ascending=True).iloc[0]
+    highest_recovery_row = analyzed_data.sort_values(
+        "Recovery %", ascending=False
+    ).iloc[0]
+    sample_review = analyzed_data.copy()
+    sample_review["Potential Outlier"] = np.where(
+        (sample_review["Absolute Percent Bias"] > max_percent_bias)
+        | (sample_review["Recovery %"] < min_recovery)
+        | (sample_review["Recovery %"] > max_recovery),
+        "YES",
+        "NO",
+    )
+    sample_review["Outlier Reason"] = np.select(
+        [
+            sample_review["Absolute Percent Bias"] > max_percent_bias,
+            sample_review["Recovery %"] < min_recovery,
+            sample_review["Recovery %"] > max_recovery,
+        ],
+        ["High percent bias", "Low recovery", "High recovery"],
+        default="Within criteria",
+    )
+
+    overall = {
+        "N": n,
+        "Mean Reference": _safe_float(reference.mean()),
+        "Mean DBS": _safe_float(dbs.mean()),
+        "Mean Bias": _safe_float(difference.mean()),
+        "Median Bias": _safe_float(difference.median()),
+        "Mean Absolute Bias": _safe_float(difference.abs().mean()),
+        "Mean Percent Bias": _safe_float(percent_bias.mean()),
+        "Median Percent Bias": _safe_float(percent_bias.median()),
+        "Mean Absolute Percent Bias": _safe_float(percent_bias.abs().mean()),
+        "Maximum Absolute Percent Bias": _safe_float(percent_bias.abs().max()),
+        "Mean Recovery": _safe_float(recovery.mean()),
+        "Median Recovery": _safe_float(recovery.median()),
+        "Minimum Recovery": _safe_float(recovery.min()),
+        "Maximum Recovery": _safe_float(recovery.max()),
+        "Correlation r": _safe_float(correlation_r),
+        "R²": _safe_float(r_squared),
+        "Slope": _safe_float(slope),
+        "Intercept": _safe_float(intercept),
+        "Mean Difference": _safe_float(mean_difference),
+        "SD Difference": _safe_float(sd_difference),
+        "Lower Limit of Agreement": _safe_float(lower_loa),
+        "Upper Limit of Agreement": _safe_float(upper_loa),
+        "Highest Bias Sample": str(worst_bias_row["Sample ID"]),
+        "Lowest Recovery Sample": str(lowest_recovery_row["Sample ID"]),
+        "Highest Recovery Sample": str(highest_recovery_row["Sample ID"]),
+        "Worst Sample": str(worst_bias_row["Sample ID"]),
+    }
+
+    study_summary = pd.DataFrame(
+        [
+            {"Metric": "N", "Value": overall["N"]},
+            {"Metric": "Mean Reference", "Value": overall["Mean Reference"]},
+            {"Metric": "Mean DBS", "Value": overall["Mean DBS"]},
+            {"Metric": "Mean Bias", "Value": overall["Mean Bias"]},
+            {"Metric": "Mean Recovery", "Value": overall["Mean Recovery"]},
+            {"Metric": "R²", "Value": overall["R²"]},
+        ]
+    )
+    bias_summary = pd.DataFrame(
+        [
+            {"Metric": "Mean Bias", "Value": overall["Mean Bias"]},
+            {"Metric": "Median Bias", "Value": overall["Median Bias"]},
+            {"Metric": "Mean Absolute Bias", "Value": overall["Mean Absolute Bias"]},
+            {"Metric": "Mean Percent Bias", "Value": overall["Mean Percent Bias"]},
+            {"Metric": "Median Percent Bias", "Value": overall["Median Percent Bias"]},
+            {"Metric": "Maximum Absolute Percent Bias", "Value": overall["Maximum Absolute Percent Bias"]},
+        ]
+    )
+    recovery_summary = pd.DataFrame(
+        [
+            {"Metric": "Mean Recovery", "Value": overall["Mean Recovery"]},
+            {"Metric": "Median Recovery", "Value": overall["Median Recovery"]},
+            {"Metric": "Minimum Recovery", "Value": overall["Minimum Recovery"]},
+            {"Metric": "Maximum Recovery", "Value": overall["Maximum Recovery"]},
+        ]
+    )
+    correlation_summary = pd.DataFrame(
+        [
+            {"Metric": "Pearson Correlation r", "Value": overall["Correlation r"]},
+            {"Metric": "R²", "Value": overall["R²"]},
+            {"Metric": "Slope", "Value": overall["Slope"]},
+            {"Metric": "Intercept", "Value": overall["Intercept"]},
+        ]
+    )
+    agreement_summary = pd.DataFrame(
+        [
+            {"Metric": "Mean Difference", "Value": overall["Mean Difference"]},
+            {"Metric": "SD Difference", "Value": overall["SD Difference"]},
+            {"Metric": "Lower 95% Limit of Agreement", "Value": overall["Lower Limit of Agreement"]},
+            {"Metric": "Upper 95% Limit of Agreement", "Value": overall["Upper Limit of Agreement"]},
+        ]
+    )
+    return (
+        study_summary,
+        bias_summary,
+        recovery_summary,
+        correlation_summary,
+        agreement_summary,
+        sample_review.sort_values("Absolute Percent Bias", ascending=False),
+        overall,
+    )
+
+
+def evaluate_dbs_criteria(
+    overall_summary: dict[str, float | str],
+    max_percent_bias: float,
+    min_recovery: float,
+    max_recovery: float,
+    min_r_squared: float,
+    max_mean_difference: float,
+    borderline_zone: float,
+) -> dict[str, object]:
+    """Evaluate preliminary DBS validation criteria."""
+
+    checks = []
+    max_bias = float(overall_summary.get("Maximum Absolute Percent Bias", np.nan))
+    bias_status = _max_threshold_status(max_bias, max_percent_bias, borderline_zone)
+    checks.append(
+        {
+            "Criterion": "Maximum absolute percent bias",
+            "Observed": max_bias,
+            "Acceptance Limit": f"<= {max_percent_bias:g}%",
+            "Met": bias_status == "PASS",
+            "Borderline": bias_status == "PASS WITH CAUTION",
+        }
+    )
+
+    min_observed_recovery = float(overall_summary.get("Minimum Recovery", np.nan))
+    min_recovery_status = _min_threshold_status(
+        min_observed_recovery, min_recovery, borderline_zone
+    )
+    checks.append(
+        {
+            "Criterion": "Minimum recovery",
+            "Observed": min_observed_recovery,
+            "Acceptance Limit": f">= {min_recovery:g}%",
+            "Met": min_recovery_status == "PASS",
+            "Borderline": min_recovery_status == "PASS WITH CAUTION",
+        }
+    )
+
+    max_observed_recovery = float(overall_summary.get("Maximum Recovery", np.nan))
+    max_recovery_status = _max_threshold_status(
+        max_observed_recovery, max_recovery, borderline_zone
+    )
+    checks.append(
+        {
+            "Criterion": "Maximum recovery",
+            "Observed": max_observed_recovery,
+            "Acceptance Limit": f"<= {max_recovery:g}%",
+            "Met": max_recovery_status == "PASS",
+            "Borderline": max_recovery_status == "PASS WITH CAUTION",
+        }
+    )
+
+    r_squared = float(overall_summary.get("R²", np.nan))
+    r_status = "PASS" if not pd.isna(r_squared) and r_squared >= min_r_squared else (
+        "PASS WITH CAUTION"
+        if not pd.isna(r_squared) and r_squared >= min_r_squared - 0.02
+        else "FAIL"
+    )
+    checks.append(
+        {
+            "Criterion": "R²",
+            "Observed": r_squared,
+            "Acceptance Limit": f">= {min_r_squared:g}",
+            "Met": r_status == "PASS",
+            "Borderline": r_status == "PASS WITH CAUTION",
+        }
+    )
+
+    mean_difference = abs(float(overall_summary.get("Mean Difference", np.nan)))
+    difference_zone = max_mean_difference * (borderline_zone / 100)
+    diff_status = _max_threshold_status(
+        mean_difference, max_mean_difference, difference_zone
+    )
+    checks.append(
+        {
+            "Criterion": "Absolute mean difference",
+            "Observed": mean_difference,
+            "Acceptance Limit": f"<= {max_mean_difference:g}",
+            "Met": diff_status == "PASS",
+            "Borderline": diff_status == "PASS WITH CAUTION",
+        }
+    )
+
+    if any(not check["Met"] and not check["Borderline"] for check in checks):
+        decision = "FAIL"
+    elif any(check["Borderline"] for check in checks):
+        decision = "PASS WITH CAUTION"
+    else:
+        decision = "PASS"
+    return {"checks": checks, "decision": decision}
+
+
+def _correlation_regression_summary(
+    data: pd.DataFrame,
+    x_column: str,
+    y_column: str,
+    label: str,
+) -> dict[str, float | str]:
+    """Calculate simple correlation/regression summary for optional DBS factors."""
+
+    subset = data[[x_column, y_column]].dropna()
+    if len(subset) >= 2 and subset[x_column].nunique() > 1 and subset[y_column].nunique() > 1:
+        correlation = float(np.corrcoef(subset[x_column], subset[y_column])[0, 1])
+        slope, intercept = np.polyfit(subset[x_column], subset[y_column], 1)
+    else:
+        correlation = np.nan
+        slope = np.nan
+        intercept = np.nan
+    r_squared = correlation**2 if not pd.isna(correlation) else np.nan
+    return {
+        "Assessment": label,
+        "N": int(len(subset)),
+        "Correlation r": _safe_float(correlation),
+        "R²": _safe_float(r_squared),
+        "Slope": _safe_float(slope),
+        "Intercept": _safe_float(intercept),
+    }
+
+
+def _effect_status(correlation: float) -> str:
+    """Classify optional-factor effects using correlation magnitude."""
+
+    if pd.isna(correlation):
+        return "NOT AVAILABLE"
+    magnitude = abs(float(correlation))
+    if magnitude < 0.30:
+        return "PASS"
+    if magnitude < 0.50:
+        return "REVIEW"
+    return "INVESTIGATE"
+
+
+def calculate_dbs_enhancement_assessments(
+    analyzed_data: pd.DataFrame,
+    sample_review: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+    """Calculate optional DBS investigation tables and reviewer-style findings."""
+
+    findings: list[str] = []
+
+    if "Hematocrit" in analyzed_data.columns:
+        hematocrit_rows = [
+            _correlation_regression_summary(
+                analyzed_data, "Hematocrit", "Bias", "Hematocrit vs Bias"
+            ),
+            _correlation_regression_summary(
+                analyzed_data, "Hematocrit", "Percent Bias", "Hematocrit vs Percent Bias"
+            ),
+        ]
+        hematocrit_summary = pd.DataFrame(hematocrit_rows)
+        hematocrit_summary["Status"] = hematocrit_summary["Correlation r"].map(_effect_status)
+        strongest_hct = hematocrit_summary["Correlation r"].abs().max()
+        if pd.isna(strongest_hct):
+            findings.append("Hematocrit impact could not be assessed because insufficient numeric hematocrit data were available.")
+        elif strongest_hct < 0.30:
+            findings.append("No meaningful hematocrit-associated bias trend was observed.")
+        elif strongest_hct < 0.50:
+            findings.append("Mild hematocrit-associated bias was detected and should be reviewed in context of specimen equivalency.")
+        else:
+            findings.append("A significant hematocrit effect may impact DBS specimen equivalency and should be investigated.")
+    else:
+        hematocrit_summary = pd.DataFrame()
+        findings.append("Hematocrit impact assessment was not performed because no Hematocrit column was available.")
+
+    if "Extraction Delay (days)" in analyzed_data.columns:
+        delay_rows = [
+            _correlation_regression_summary(
+                analyzed_data, "Extraction Delay (days)", "Bias", "Delay vs Bias"
+            ),
+            _correlation_regression_summary(
+                analyzed_data, "Extraction Delay (days)", "Recovery %", "Delay vs Recovery"
+            ),
+            _correlation_regression_summary(
+                analyzed_data, "Extraction Delay (days)", "Percent Bias", "Delay vs Percent Bias"
+            ),
+        ]
+        delay_summary = pd.DataFrame(delay_rows)
+        delay_summary["Status"] = delay_summary["Correlation r"].map(_effect_status)
+        if "Delay Category" in analyzed_data.columns:
+            delay_category_summary = (
+                analyzed_data.groupby("Delay Category", dropna=False)
+                .agg(
+                    N=("Sample ID", "count"),
+                    **{
+                        "Mean Bias": ("Bias", "mean"),
+                        "Mean Recovery": ("Recovery %", "mean"),
+                        "Mean Percent Bias": ("Percent Bias", "mean"),
+                    },
+                )
+                .reset_index()
+            )
+            delay_summary = pd.concat(
+                [
+                    delay_summary,
+                    delay_category_summary.assign(
+                        Assessment=lambda frame: "Average Bias by Delay Category: "
+                        + frame["Delay Category"].astype(str),
+                        **{"Correlation r": np.nan, "R²": np.nan, "Slope": np.nan, "Intercept": np.nan, "Status": "SUMMARY"},
+                    )[
+                        [
+                            "Assessment",
+                            "N",
+                            "Correlation r",
+                            "R²",
+                            "Slope",
+                            "Intercept",
+                            "Status",
+                            "Mean Bias",
+                            "Mean Recovery",
+                            "Mean Percent Bias",
+                        ]
+                    ],
+                ],
+                ignore_index=True,
+            )
+        strongest_delay = delay_summary.loc[
+            delay_summary["Status"].isin(["PASS", "REVIEW", "INVESTIGATE"]),
+            "Correlation r",
+        ].abs().max()
+        if pd.isna(strongest_delay):
+            findings.append("Extraction delay assessment could not be completed because insufficient paired date data were available.")
+        elif strongest_delay < 0.30:
+            findings.append("No delay-associated degradation or bias trend was observed.")
+        elif strongest_delay < 0.50:
+            findings.append("A mild extraction-delay trend was observed and should be monitored in future DBS studies.")
+        else:
+            findings.append("Increased bias or recovery shift was observed with extraction delay; prolonged delays should be investigated.")
+    else:
+        delay_summary = pd.DataFrame()
+        findings.append("Extraction delay assessment was not performed because Collection Date and Extraction Date were not both available.")
+
+    if "Instrument" in analyzed_data.columns:
+        instrument_rows = []
+        for instrument, group in analyzed_data.groupby("Instrument", dropna=False):
+            if len(group) >= 2 and group["Reference Result"].nunique() > 1 and group["DBS Result"].nunique() > 1:
+                r_value = float(np.corrcoef(group["Reference Result"], group["DBS Result"])[0, 1])
+            else:
+                r_value = np.nan
+            instrument_rows.append(
+                {
+                    "Instrument": instrument if pd.notna(instrument) else "Not specified",
+                    "Sample Count": int(len(group)),
+                    "Mean Bias": _safe_float(group["Bias"].mean()),
+                    "Mean Recovery": _safe_float(group["Recovery %"].mean()),
+                    "R²": _safe_float(r_value**2 if not pd.isna(r_value) else np.nan),
+                }
+            )
+        instrument_summary = pd.DataFrame(instrument_rows)
+        if len(instrument_summary) <= 1:
+            findings.append("Instrument comparison was limited because only one instrument was represented.")
+        else:
+            recovery_range = instrument_summary["Mean Recovery"].max() - instrument_summary["Mean Recovery"].min()
+            bias_range = instrument_summary["Mean Bias"].max() - instrument_summary["Mean Bias"].min()
+            if abs(recovery_range) < 3 and abs(bias_range) < 0.3:
+                findings.append("No meaningful instrument-associated performance difference was observed.")
+            else:
+                findings.append("Instrument-level differences were observed and should be reviewed for potential analytical or workflow effects.")
+    else:
+        instrument_summary = pd.DataFrame()
+        findings.append("Instrument comparison was not performed because no Instrument column was available.")
+
+    lower_loa = overall_summary.get("Lower Limit of Agreement", np.nan)
+    upper_loa = overall_summary.get("Upper Limit of Agreement", np.nan)
+    outlier_review = sample_review.copy()
+    if not pd.isna(lower_loa) and not pd.isna(upper_loa):
+        outlier_review["Outside Bland-Altman Limits"] = np.where(
+            (outlier_review["Difference"] < float(lower_loa))
+            | (outlier_review["Difference"] > float(upper_loa)),
+            "YES",
+            "NO",
+        )
+    else:
+        outlier_review["Outside Bland-Altman Limits"] = "NO"
+    outlier_review["Borderline Sample"] = np.where(
+        outlier_review["Potential Outlier"].eq("NO")
+        & (
+            outlier_review["Absolute Percent Bias"]
+            >= outlier_review["Absolute Percent Bias"].quantile(0.85)
+        ),
+        "YES",
+        "NO",
+    )
+    outlier_review["Acceptance Status"] = np.select(
+        [
+            outlier_review["Potential Outlier"].eq("YES"),
+            outlier_review["Outside Bland-Altman Limits"].eq("YES"),
+            outlier_review["Borderline Sample"].eq("YES"),
+        ],
+        ["FAIL", "FAIL", "REVIEW"],
+        default="PASS",
+    )
+    outlier_columns = [
+        column
+        for column in [
+            "Sample ID",
+            "Reference Result",
+            "DBS Result",
+            "Difference",
+            "Percent Bias",
+            "Hematocrit",
+            "Extraction Delay (days)",
+            "Instrument",
+            "Potential Outlier",
+            "Outside Bland-Altman Limits",
+            "Borderline Sample",
+            "Acceptance Status",
+            "Outlier Reason",
+        ]
+        if column in outlier_review.columns
+    ]
+    outlier_review = (
+        outlier_review.sort_values("Absolute Percent Bias", ascending=False)
+        .head(10)[outlier_columns]
+        .reset_index(drop=True)
+    )
+    if outlier_review.empty:
+        findings.append("No sample-level outlier patterns were identified.")
+    else:
+        worst = outlier_review.iloc[0]
+        context = []
+        if "Hematocrit" in worst and pd.notna(worst["Hematocrit"]):
+            context.append(f"hematocrit {worst['Hematocrit']:.1f}")
+        if "Extraction Delay (days)" in worst and pd.notna(worst["Extraction Delay (days)"]):
+            context.append(f"extraction delay {int(worst['Extraction Delay (days)'])} day(s)")
+        context_text = "; ".join(context) if context else "no unusual optional specimen factor was available"
+        findings.append(
+            f"Sample {worst['Sample ID']} exhibited the largest observed bias; {context_text}."
+        )
+
+    if abs(float(overall_summary.get("Mean Percent Bias", 0))) < 5 and float(overall_summary.get("R²", 0)) >= 0.95:
+        findings.append("Results suggest acceptable DBS equivalency under the evaluated study conditions.")
+    else:
+        findings.append("Further investigation is recommended before concluding DBS equivalency.")
+
+    return hematocrit_summary, delay_summary, instrument_summary, outlier_review, findings
+
+
+def run_dbs_validation_study(
+    data: pd.DataFrame,
+    sample_id_column: str,
+    reference_column: str,
+    dbs_column: str,
+    include_column: str | None = None,
+    max_percent_bias: float = 10.0,
+    min_recovery: float = 90.0,
+    max_recovery: float = 110.0,
+) -> DBSValidationResult:
+    """Run a DBS-versus-reference specimen validation analysis."""
+
+    analyzed_data = prepare_dbs_validation_data(
+        data, sample_id_column, reference_column, dbs_column, include_column
+    )
+    (
+        study_summary,
+        bias_summary,
+        recovery_summary,
+        correlation_summary,
+        agreement_summary,
+        sample_review,
+        overall_summary,
+    ) = calculate_dbs_validation_summary(
+        analyzed_data, max_percent_bias, min_recovery, max_recovery
+    )
+    (
+        hematocrit_summary,
+        delay_summary,
+        instrument_summary,
+        outlier_review,
+        scientific_findings,
+    ) = calculate_dbs_enhancement_assessments(
+        analyzed_data, sample_review, overall_summary
+    )
+    return DBSValidationResult(
+        analyzed_data=analyzed_data,
+        study_summary=study_summary,
+        bias_summary=bias_summary,
+        recovery_summary=recovery_summary,
+        correlation_summary=correlation_summary,
+        agreement_summary=agreement_summary,
+        hematocrit_summary=hematocrit_summary,
+        delay_summary=delay_summary,
+        instrument_summary=instrument_summary,
+        outlier_review=outlier_review,
+        scientific_findings=scientific_findings,
+        sample_review=sample_review,
+        overall_summary=overall_summary,
+        sample_id_column=sample_id_column,
+        reference_column=reference_column,
+        dbs_column=dbs_column,
         include_column=include_column,
     )

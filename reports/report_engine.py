@@ -27,10 +27,12 @@ from analysis import (
     evaluate_acceptance_criteria,
     evaluate_accuracy_criteria,
     evaluate_detection_capability_criteria,
+    evaluate_dbs_criteria,
     evaluate_linearity_criteria,
     evaluate_precision_criteria,
     evaluate_stability_criteria,
     run_accuracy_study,
+    run_dbs_validation_study,
     run_detection_capability_study,
     run_linearity_study,
     run_method_comparison,
@@ -40,6 +42,8 @@ from analysis import (
 from plots import (
     create_accuracy_expected_observed_plot,
     create_blank_distribution_histogram,
+    create_dbs_bland_altman_plot,
+    create_dbs_scatter_plot,
     create_difference_plot,
     create_linearity_plot,
     create_loq_precision_curve,
@@ -57,6 +61,9 @@ from report import (
     format_detection_criteria_table,
     format_detection_overall_summary,
     format_detection_table,
+    format_dbs_criteria_table,
+    format_dbs_overall_summary,
+    format_dbs_table,
     format_linearity_criteria_table,
     format_linearity_regression_summary,
     format_linearity_summary_table,
@@ -66,6 +73,7 @@ from report import (
     format_stability_overall_summary,
     format_stability_table,
     generate_accuracy_interpretation,
+    generate_dbs_interpretation,
     generate_detection_interpretation,
     generate_interpretation,
     generate_linearity_interpretation,
@@ -96,6 +104,7 @@ SUPPORTED_STUDIES = (
     "Stability",
     "Accuracy",
     "Detection Capability",
+    "DBS Validation",
 )
 
 
@@ -515,6 +524,112 @@ def build_detection_report(root_dir: Path, project_metadata: dict[str, object]) 
     )
 
 
+def build_dbs_report(root_dir: Path, project_metadata: dict[str, object]) -> StudyReport:
+    """Build normalized DBS validation payload for consolidated reports."""
+
+    data = pd.read_csv(_sample_path(root_dir, "dbs_validation_hba1c.csv"))
+    criteria = {
+        "Maximum Percent Bias": 10.0,
+        "Minimum Recovery": 90.0,
+        "Maximum Recovery": 110.0,
+        "Minimum R²": 0.95,
+        "Maximum Mean Difference": 0.50,
+        "Borderline Zone": 2.0,
+    }
+    result = run_dbs_validation_study(
+        data,
+        "Sample ID",
+        "Reference Result",
+        "DBS Result",
+        "Include in Analysis",
+        criteria["Maximum Percent Bias"],
+        criteria["Minimum Recovery"],
+        criteria["Maximum Recovery"],
+    )
+    criteria_result = evaluate_dbs_criteria(
+        result.overall_summary,
+        criteria["Maximum Percent Bias"],
+        criteria["Minimum Recovery"],
+        criteria["Maximum Recovery"],
+        criteria["Minimum R²"],
+        criteria["Maximum Mean Difference"],
+        criteria["Borderline Zone"],
+    )
+    decision = _criteria_decision(criteria_result)
+    metadata = _base_metadata(
+        project_metadata,
+        "DBS Validation",
+        "Evaluate whether DBS-derived results demonstrate acceptable analytical agreement with reference venous specimens.",
+        "Paired DBS and venous whole blood specimens analyzed to evaluate recovery, bias, correlation, and agreement.",
+    )
+    metadata.update(
+        {
+            "Specimen Comparison": "DBS vs Venous Whole Blood",
+            "DBS Punch Size": "6 mm",
+            "Specimen Matrix": "DBS vs Venous Whole Blood",
+        }
+    )
+    interpretation = generate_dbs_interpretation(
+        result.overall_summary, criteria, decision, metadata
+    )
+    scientific_findings = (
+        ["All predefined acceptance criteria were met."]
+        if decision == "PASS"
+        else ["One or more preliminary acceptance criteria require reviewer attention."]
+        if decision in {"PASS WITH CAUTION", "BORDERLINE", "REVIEW"}
+        else ["One or more preliminary acceptance criteria were not met."]
+    ) + result.scientific_findings
+    key_findings = pd.DataFrame(
+        [
+            {"Metric": "R²", "Result": f"{result.overall_summary['R²']:.4f}"},
+            {"Metric": "Mean Recovery", "Result": f"{result.overall_summary['Mean Recovery']:.2f}%"},
+            {"Metric": "Maximum Absolute Percent Bias", "Result": f"{result.overall_summary['Maximum Absolute Percent Bias']:.2f}%"},
+            {"Metric": "Mean Difference", "Result": f"{result.overall_summary['Mean Difference']:.3f}"},
+        ]
+    )
+    return StudyReport(
+        study_type="DBS Validation",
+        study_name=str(metadata["Study Name"]),
+        status="Completed",
+        decision=decision,
+        date=str(metadata["Study Date"]),
+        objective=str(metadata["Study Objective"]),
+        design=str(metadata["Study Design"]),
+        metadata=metadata,
+        acceptance_criteria=format_dbs_criteria_table(build_criteria_table(criteria_result)),
+        key_findings=key_findings,
+        interpretation=interpretation,
+        visualizations={
+            "DBS vs Reference Scatter Plot": _figure_html(
+                create_dbs_scatter_plot(result.analyzed_data, result.overall_summary),
+                True,
+            ),
+            "Bland-Altman Plot": _figure_html(
+                create_dbs_bland_altman_plot(result.analyzed_data, result.overall_summary)
+            ),
+        },
+        raw_outputs={
+            "DBS Overall Summary": format_dbs_overall_summary(result.overall_summary),
+            "Bias Summary": format_dbs_table(result.bias_summary),
+            "Recovery Summary": format_dbs_table(result.recovery_summary),
+            "Correlation Summary": format_dbs_table(result.correlation_summary),
+            "Agreement Summary": format_dbs_table(result.agreement_summary),
+            "Hematocrit Assessment": format_dbs_table(result.hematocrit_summary),
+            "Extraction Delay Assessment": format_dbs_table(result.delay_summary),
+            "Instrument Assessment": format_dbs_table(result.instrument_summary),
+            "Outlier Investigation": format_dbs_table(result.outlier_review),
+            "Scientific Review Findings": pd.DataFrame({"Finding": scientific_findings}),
+        },
+        **_traceability(
+            data,
+            result.analyzed_data,
+            "dbs_validation_hba1c.csv",
+            "DBS specimen equivalency analysis using paired bias, percent recovery, Pearson correlation, ordinary least-squares regression, and Bland-Altman agreement statistics.",
+            decision,
+        ),
+    )
+
+
 STUDY_BUILDERS = {
     "Method Comparison": build_method_comparison_report,
     "Precision": build_precision_report,
@@ -522,6 +637,7 @@ STUDY_BUILDERS = {
     "Stability": build_stability_report,
     "Accuracy": build_accuracy_report,
     "Detection Capability": build_detection_report,
+    "DBS Validation": build_dbs_report,
 }
 
 

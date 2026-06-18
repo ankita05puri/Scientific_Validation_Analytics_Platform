@@ -1137,3 +1137,307 @@ def create_detection_density_plot(
     )
     figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
     return figure
+
+
+def create_dbs_scatter_plot(
+    analyzed_data: pd.DataFrame, overall_summary: dict[str, float | str]
+) -> go.Figure:
+    """Create DBS-vs-reference scatter plot with identity and regression lines."""
+
+    figure = px.scatter(
+        analyzed_data,
+        x="Reference Result",
+        y="DBS Result",
+        hover_data=["Sample ID"],
+        title="DBS vs Reference Scatter Plot",
+        labels={"Reference Result": "Reference Result", "DBS Result": "DBS Result"},
+        template="plotly_white",
+    )
+    min_value = min(analyzed_data["Reference Result"].min(), analyzed_data["DBS Result"].min())
+    max_value = max(analyzed_data["Reference Result"].max(), analyzed_data["DBS Result"].max())
+    x_values = np.array([min_value, max_value])
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=x_values,
+            mode="lines",
+            name="Identity line",
+            line={"color": "#808080", "dash": "dash"},
+        )
+    )
+    slope = overall_summary.get("Slope", np.nan)
+    intercept = overall_summary.get("Intercept", np.nan)
+    if not pd.isna(slope) and not pd.isna(intercept):
+        figure.add_trace(
+            go.Scatter(
+                x=x_values,
+                y=(float(slope) * x_values) + float(intercept),
+                mode="lines",
+                name="Regression line",
+                line={"color": "#d62728", "width": 2},
+            )
+        )
+    figure.add_annotation(
+        x=0.02,
+        y=0.98,
+        xref="paper",
+        yref="paper",
+        text=(
+            f"y = {_format_number(overall_summary.get('Slope'), 4)}x + "
+            f"{_format_number(overall_summary.get('Intercept'), 4)}"
+            f"<br>R² = {_format_number(overall_summary.get('R²'), 4)}"
+        ),
+        showarrow=False,
+        align="left",
+        bgcolor="rgba(255,255,255,0.85)",
+        bordercolor="#d9d9d9",
+        borderwidth=1,
+        borderpad=8,
+    )
+    figure.update_traces(marker={"size": 9})
+    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_dbs_bland_altman_plot(
+    analyzed_data: pd.DataFrame, overall_summary: dict[str, float | str]
+) -> go.Figure:
+    """Create DBS Bland-Altman agreement plot."""
+
+    figure = px.scatter(
+        analyzed_data,
+        x="Mean of Methods",
+        y="Difference",
+        hover_data=["Sample ID"],
+        title="DBS Bland-Altman Plot",
+        labels={"Mean of Methods": "Average of DBS and Reference", "Difference": "DBS - Reference"},
+        template="plotly_white",
+    )
+    lines = [
+        ("Mean difference", overall_summary.get("Mean Difference"), "#2a6f97"),
+        ("Upper LoA", overall_summary.get("Upper Limit of Agreement"), "#c92a2a"),
+        ("Lower LoA", overall_summary.get("Lower Limit of Agreement"), "#c92a2a"),
+    ]
+    for label, y_value, color in lines:
+        if not pd.isna(y_value):
+            figure.add_hline(
+                y=float(y_value),
+                line_dash="dash" if label != "Mean difference" else "solid",
+                line_color=color,
+                annotation_text=f"{label}: {float(y_value):.2f}",
+                annotation_position="top left",
+            )
+    figure.update_traces(marker={"color": "#2a6f97", "size": 9})
+    return figure
+
+
+def create_dbs_recovery_plot(
+    analyzed_data: pd.DataFrame, min_recovery: float, max_recovery: float
+) -> go.Figure:
+    """Create DBS sample-level recovery plot."""
+
+    plot_data = analyzed_data.copy()
+    figure = px.scatter(
+        plot_data,
+        x="Sample ID",
+        y="Recovery %",
+        title="DBS Recovery by Sample",
+        labels={"Recovery %": "Recovery (%)"},
+        template="plotly_white",
+    )
+    for y_value, color, dash in [
+        (min_recovery, "#c92a2a", "dash"),
+        (100, "#808080", "solid"),
+        (max_recovery, "#c92a2a", "dash"),
+    ]:
+        figure.add_hline(
+            y=y_value,
+            line_color=color,
+            line_dash=dash,
+            annotation_text=f"{y_value:.1f}%",
+            annotation_position="top left",
+        )
+    figure.update_traces(marker={"color": "#2a6f97", "size": 8})
+    figure.update_layout(xaxis_tickangle=-45)
+    return figure
+
+
+def create_dbs_percent_bias_plot(
+    analyzed_data: pd.DataFrame, max_percent_bias: float
+) -> go.Figure:
+    """Create DBS percent-bias-by-sample plot."""
+
+    figure = px.scatter(
+        analyzed_data,
+        x="Sample ID",
+        y="Percent Bias",
+        title="DBS Percent Bias by Sample",
+        labels={"Percent Bias": "Percent Bias (%)"},
+        template="plotly_white",
+    )
+    for y_value in [-max_percent_bias, 0, max_percent_bias]:
+        figure.add_hline(
+            y=y_value,
+            line_color="#808080" if y_value == 0 else "#c92a2a",
+            line_dash="solid" if y_value == 0 else "dash",
+            annotation_text=f"{y_value:.1f}%",
+            annotation_position="top left",
+        )
+    figure.update_traces(marker={"color": "#2a6f97", "size": 8})
+    figure.update_layout(xaxis_tickangle=-45)
+    return figure
+
+
+def create_dbs_distribution_comparison(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create overlaid reference and DBS result distributions."""
+
+    long_data = analyzed_data.melt(
+        value_vars=["Reference Result", "DBS Result"],
+        var_name="Specimen Type",
+        value_name="Result",
+    )
+    figure = px.histogram(
+        long_data,
+        x="Result",
+        color="Specimen Type",
+        barmode="overlay",
+        marginal="box",
+        opacity=0.6,
+        title="Reference and DBS Distribution Comparison",
+        template="plotly_white",
+    )
+    return figure
+
+
+def _add_simple_regression_line(figure: go.Figure, data: pd.DataFrame, x: str, y: str) -> go.Figure:
+    """Overlay a simple regression line when enough data are available."""
+
+    subset = data[[x, y]].dropna()
+    if len(subset) >= 2 and subset[x].nunique() > 1 and subset[y].nunique() > 1:
+        slope, intercept = np.polyfit(subset[x], subset[y], 1)
+        x_values = np.array([subset[x].min(), subset[x].max()])
+        figure.add_trace(
+            go.Scatter(
+                x=x_values,
+                y=(slope * x_values) + intercept,
+                mode="lines",
+                name="Regression line",
+                line={"color": "#d62728", "width": 2},
+            )
+        )
+    return figure
+
+
+def create_dbs_hematocrit_bias_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create hematocrit vs absolute bias assessment plot."""
+
+    figure = px.scatter(
+        analyzed_data.dropna(subset=["Hematocrit", "Bias"]),
+        x="Hematocrit",
+        y="Bias",
+        hover_data=["Sample ID"],
+        title="Hematocrit vs Bias",
+        template="plotly_white",
+    )
+    figure = _add_simple_regression_line(figure, analyzed_data, "Hematocrit", "Bias")
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_dbs_hematocrit_percent_bias_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create hematocrit vs percent bias assessment plot."""
+
+    figure = px.scatter(
+        analyzed_data.dropna(subset=["Hematocrit", "Percent Bias"]),
+        x="Hematocrit",
+        y="Percent Bias",
+        hover_data=["Sample ID"],
+        title="Hematocrit vs Percent Bias",
+        labels={"Percent Bias": "Percent Bias (%)"},
+        template="plotly_white",
+    )
+    figure = _add_simple_regression_line(
+        figure, analyzed_data, "Hematocrit", "Percent Bias"
+    )
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_dbs_delay_bias_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create extraction delay vs bias plot."""
+
+    figure = px.scatter(
+        analyzed_data.dropna(subset=["Extraction Delay (days)", "Bias"]),
+        x="Extraction Delay (days)",
+        y="Bias",
+        hover_data=["Sample ID"],
+        title="Extraction Delay vs Bias",
+        template="plotly_white",
+    )
+    figure = _add_simple_regression_line(
+        figure, analyzed_data, "Extraction Delay (days)", "Bias"
+    )
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_dbs_delay_distribution_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create extraction delay distribution histogram."""
+
+    figure = px.histogram(
+        analyzed_data.dropna(subset=["Extraction Delay (days)"]),
+        x="Extraction Delay (days)",
+        nbins=8,
+        title="Extraction Delay Distribution",
+        template="plotly_white",
+    )
+    return figure
+
+
+def create_dbs_delay_category_bias_plot(analyzed_data: pd.DataFrame) -> go.Figure:
+    """Create average bias by extraction delay category."""
+
+    if "Delay Category" not in analyzed_data.columns:
+        return go.Figure()
+    summary = (
+        analyzed_data.groupby("Delay Category", dropna=False)["Bias"]
+        .mean()
+        .reset_index(name="Mean Bias")
+    )
+    figure = px.bar(
+        summary,
+        x="Delay Category",
+        y="Mean Bias",
+        title="Average Bias by Delay Category",
+        template="plotly_white",
+    )
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_dbs_instrument_bias_plot(instrument_summary: pd.DataFrame) -> go.Figure:
+    """Create mean bias by instrument plot."""
+
+    figure = px.bar(
+        instrument_summary,
+        x="Instrument",
+        y="Mean Bias",
+        title="Mean Bias by Instrument",
+        template="plotly_white",
+    )
+    figure.add_hline(y=0, line_dash="dash", line_color="#808080")
+    return figure
+
+
+def create_dbs_instrument_recovery_plot(instrument_summary: pd.DataFrame) -> go.Figure:
+    """Create mean recovery by instrument plot."""
+
+    figure = px.bar(
+        instrument_summary,
+        x="Instrument",
+        y="Mean Recovery",
+        title="Mean Recovery by Instrument",
+        template="plotly_white",
+    )
+    figure.add_hline(y=100, line_dash="dash", line_color="#808080")
+    return figure

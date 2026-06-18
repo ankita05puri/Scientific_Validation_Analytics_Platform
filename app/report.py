@@ -2411,6 +2411,370 @@ def build_detection_pdf_report(
     return output.encode("latin-1")
 
 
+def format_dbs_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format DBS validation tables for scientific review."""
+
+    formatted = table.copy()
+    for column in formatted.columns:
+        lower = str(column).lower()
+        if lower in {"n", "replicate"}:
+            formatted[column] = formatted[column].map(
+                lambda value: "" if pd.isna(value) else f"{int(value)}"
+            )
+        elif "r²" in str(column) or "correlation" in lower or "slope" in lower:
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 4)
+                if pd.api.types.is_number(value)
+                else value
+            )
+        elif "percent" in lower or "recovery" in lower or "bias" in lower:
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 2, "%" if "percent" in lower or "recovery" in lower else "")
+                if pd.api.types.is_number(value)
+                else value
+            )
+        elif pd.api.types.is_numeric_dtype(formatted[column]):
+            formatted[column] = formatted[column].map(
+                lambda value: _format_measurement(value, 3)
+            )
+    return formatted
+
+
+def format_dbs_criteria_table(criteria_table: pd.DataFrame) -> pd.DataFrame:
+    """Format DBS acceptance criteria results."""
+
+    formatted = criteria_table.copy()
+
+    def format_observed(row: pd.Series) -> str:
+        value = row["Observed Value"]
+        if pd.isna(value):
+            return ""
+        criterion = str(row["Criterion"]).lower()
+        suffix = "%" if "bias" in criterion or "recovery" in criterion else ""
+        digits = 4 if "r²" in criterion else 2
+        return _format_measurement(value, digits, suffix)
+
+    formatted["Observed Value"] = formatted.apply(format_observed, axis=1)
+    if "Pass/Fail Status" in formatted.columns:
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].str.upper()
+        formatted["Pass/Fail Status"] = formatted["Pass/Fail Status"].replace(
+            {"BORDERLINE": "PASS WITH CAUTION"}
+        )
+    if "Borderline Status" in formatted.columns:
+        formatted["Borderline Status"] = formatted["Borderline Status"].map(
+            lambda value: "YES" if bool(value) else "NO"
+        )
+    return formatted
+
+
+def format_dbs_overall_summary(summary: dict[str, float | str]) -> pd.DataFrame:
+    """Format DBS overall summary metrics."""
+
+    rows = [
+        ("N", str(int(summary.get("N", 0)))),
+        ("Mean Bias", _format_measurement(summary.get("Mean Bias"), 3)),
+        ("Mean Percent Bias", _format_measurement(summary.get("Mean Percent Bias"), 2, "%")),
+        ("Mean Recovery", _format_measurement(summary.get("Mean Recovery"), 2, "%")),
+        ("R²", _format_measurement(summary.get("R²"), 4)),
+        ("Slope", _format_measurement(summary.get("Slope"), 4)),
+        ("Mean Difference", _format_measurement(summary.get("Mean Difference"), 3)),
+        ("Lower 95% LoA", _format_measurement(summary.get("Lower Limit of Agreement"), 3)),
+        ("Upper 95% LoA", _format_measurement(summary.get("Upper Limit of Agreement"), 3)),
+        ("Worst Sample", str(summary.get("Worst Sample", ""))),
+    ]
+    return pd.DataFrame(rows, columns=["Metric", "Value"])
+
+
+def build_dbs_executive_summary(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> dict[str, str]:
+    """Build DBS executive summary card values."""
+
+    counts = count_statuses(criteria_table, "Pass/Fail Status") if criteria_table is not None else {"BORDERLINE": 0, "FAIL": 0}
+    return {
+        "Overall Decision": decision,
+        "Mean Bias": _format_measurement(overall_summary["Mean Bias"], 3),
+        "Mean Recovery": _format_measurement(overall_summary["Mean Recovery"], 2, "%"),
+        "R²": _format_measurement(overall_summary["R²"], 4),
+        "Worst Sample": str(overall_summary["Worst Sample"]),
+        "Borderline Findings": str(counts.get("BORDERLINE", 0) + counts.get("PASS WITH CAUTION", 0)),
+        "Failed Criteria": str(counts.get("FAIL", 0)),
+    }
+
+
+def dbs_executive_summary_html(
+    overall_summary: dict[str, float | str],
+    decision: str,
+    criteria_table: pd.DataFrame | None = None,
+) -> str:
+    """Render DBS executive summary cards."""
+
+    cards = []
+    for label, value in build_dbs_executive_summary(
+        overall_summary, decision, criteria_table
+    ).items():
+        value_html = status_badge_html(value) if label == "Overall Decision" else escape(value)
+        cards.append(
+            f"""
+            <div class="summary-card">
+              <div class="summary-label">{escape(label)}</div>
+              <div class="summary-value">{value_html}</div>
+            </div>
+            """
+        )
+    return '<div class="summary-grid">' + "".join(cards) + "</div>"
+
+
+def generate_dbs_interpretation(
+    overall_summary: dict[str, float | str],
+    criteria: dict[str, float],
+    decision: str,
+    metadata: dict[str, object],
+) -> str:
+    """Generate a professional DBS validation interpretation."""
+
+    study_name = metadata.get("Study Name") or "this DBS validation study"
+    assay = metadata.get("Assay / Biomarker") or metadata.get("Assay") or "the assay"
+    if decision == "PASS":
+        conclusion = "All predefined preliminary acceptance criteria were met."
+    elif decision in {"PASS WITH CAUTION", "BORDERLINE"}:
+        conclusion = "One or more findings were within the user-defined borderline zone and should be reviewed before formal approval."
+    else:
+        conclusion = "One or more predefined preliminary acceptance criteria were not met and require investigation."
+    return build_sectioned_interpretation(
+        {
+            "Study Objective": (
+                f"{study_name} evaluated whether DBS-derived {assay} results demonstrate "
+                "acceptable analytical agreement with reference venous specimens."
+            ),
+            "Bias Assessment": (
+                f"Mean bias was {_format_measurement(overall_summary['Mean Bias'], 3)} and "
+                f"mean percent bias was {_format_measurement(overall_summary['Mean Percent Bias'], 2, '%')}. "
+                f"The maximum absolute percent bias was {_format_measurement(overall_summary['Maximum Absolute Percent Bias'], 2, '%')} "
+                f"against a user-defined limit of {criteria['Maximum Percent Bias']:.2f}%."
+            ),
+            "Recovery Assessment": (
+                f"Mean recovery was {_format_measurement(overall_summary['Mean Recovery'], 2, '%')}, "
+                f"with observed recovery ranging from {_format_measurement(overall_summary['Minimum Recovery'], 2, '%')} "
+                f"to {_format_measurement(overall_summary['Maximum Recovery'], 2, '%')}."
+            ),
+            "Correlation Assessment": (
+                f"Correlation analysis produced r = {_format_measurement(overall_summary['Correlation r'], 4)} "
+                f"and R² = {_format_measurement(overall_summary['R²'], 4)}, with slope "
+                f"{_format_measurement(overall_summary['Slope'], 4)} and intercept "
+                f"{_format_measurement(overall_summary['Intercept'], 4)}."
+            ),
+            "Agreement Assessment": (
+                f"The mean difference was {_format_measurement(overall_summary['Mean Difference'], 3)}, "
+                f"with 95% limits of agreement from {_format_measurement(overall_summary['Lower Limit of Agreement'], 3)} "
+                f"to {_format_measurement(overall_summary['Upper Limit of Agreement'], 3)}."
+            ),
+            "Overall Conclusion": (
+                f"{conclusion} The overall preliminary decision is {decision}. "
+                "This interpretation is informational only and does not replace formal laboratory review."
+            ),
+        }
+    )
+
+
+def build_dbs_html_report(
+    study_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    correlation_summary: pd.DataFrame,
+    agreement_summary: pd.DataFrame,
+    hematocrit_summary: pd.DataFrame,
+    delay_summary: pd.DataFrame,
+    instrument_summary: pd.DataFrame,
+    outlier_review: pd.DataFrame,
+    scientific_findings: list[str],
+    sample_review: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+    visualization_html: dict[str, str] | None = None,
+) -> str:
+    """Build a complete DBS Validation HTML report."""
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    formatted_criteria = format_dbs_criteria_table(criteria_table)
+    figures_html = "".join(
+        f"<h3>{escape(title)}</h3>{figure_html}"
+        for title, figure_html in (visualization_html or {}).items()
+    )
+    interpretation_html = "<br><br>".join(
+        escape(paragraph) for paragraph in interpretation.split("\n\n")
+    )
+    findings_html = "<ul>" + "".join(
+        f"<li>{escape(finding)}</li>" for finding in scientific_findings
+    ) + "</ul>"
+    hematocrit_html = (
+        "<p>Hematocrit impact assessment was not available.</p>"
+        if hematocrit_summary.empty
+        else format_dbs_table(hematocrit_summary).to_html(index=False)
+    )
+    delay_html = (
+        "<p>Extraction delay assessment was not available.</p>"
+        if delay_summary.empty
+        else format_dbs_table(delay_summary).to_html(index=False)
+    )
+    instrument_html = (
+        "<p>Instrument comparison was not available.</p>"
+        if instrument_summary.empty
+        else format_dbs_table(instrument_summary).to_html(index=False)
+    )
+    outlier_html = (
+        "<p>No outliers were identified for investigation.</p>"
+        if outlier_review.empty
+        else format_dbs_table(outlier_review).to_html(index=False)
+    )
+    notes = escape(str(metadata.get("Notes") or "None documented."))
+    deviations = escape(str(metadata.get("Deviations") or "None documented."))
+    conclusions = escape(str(metadata.get("Conclusions") or "Pending final review."))
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DBS Validation Report</title>
+  <style>
+    body {{ color:#1f2933; font-family:Arial,sans-serif; line-height:1.5; margin:40px; }}
+    h1,h2,h3 {{ color:#102a43; }}
+    table {{ border-collapse:collapse; margin:12px 0 28px; width:100%; }}
+    th,td {{ border:1px solid #d9e2ec; padding:8px; text-align:right; }}
+    th {{ background:#f0f4f8; }}
+    td:first-child,th:first-child {{ text-align:left; }}
+    .summary-grid {{ display:grid; gap:12px; grid-template-columns:repeat(3,minmax(0,1fr)); margin:14px 0 28px; }}
+    .summary-card {{ border:1px solid #d9e2ec; border-radius:8px; padding:14px 16px; background:#fff; }}
+    .summary-label {{ color:#52606d; font-size:.78rem; font-weight:bold; text-transform:uppercase; }}
+    .summary-value {{ color:#102a43; font-size:1.25rem; font-weight:bold; }}
+    .note {{ background:#f7f9fb; border-left:4px solid #2a6f97; padding:12px 16px; }}
+    .status-badge {{ border-radius:999px; display:inline-block; font-size:.78rem; font-weight:bold; padding:6px 10px; }}
+    .status-pass {{ background:#e3f9e5; color:#1f7a1f; }}
+    .status-borderline {{ background:#fff8c5; color:#946200; }}
+    .status-fail {{ background:#ffe3e3; color:#c92a2a; }}
+  </style>
+</head>
+<body>
+  <h1>DBS Validation Report</h1>
+  <p><strong>Generated:</strong> {generated_at}</p>
+  <h2>Study Metadata</h2>
+  {_metadata_to_html(metadata)}
+  <h2>Executive Summary</h2>
+  {dbs_executive_summary_html(overall_summary, decision, formatted_criteria)}
+  {format_dbs_overall_summary(overall_summary).to_html(index=False)}
+  <h2>Acceptance Criteria</h2>
+  <p>User-defined preliminary screening criteria: maximum percent bias {criteria['Maximum Percent Bias']:.2f}%; recovery {criteria['Minimum Recovery']:.2f}% to {criteria['Maximum Recovery']:.2f}%; minimum R² {criteria['Minimum R²']:.3f}; maximum mean difference {criteria['Maximum Mean Difference']:.3f}; borderline zone {criteria['Borderline Zone']:.2f}%.</p>
+  <h2>Bias Analysis</h2>
+  {format_dbs_table(bias_summary).to_html(index=False)}
+  <h2>Recovery Analysis</h2>
+  {format_dbs_table(recovery_summary).to_html(index=False)}
+  <h2>Correlation Analysis</h2>
+  {format_dbs_table(correlation_summary).to_html(index=False)}
+  <h2>Agreement Analysis</h2>
+  {format_dbs_table(agreement_summary).to_html(index=False)}
+  <h2>Hematocrit Assessment</h2>
+  {hematocrit_html}
+  <h2>Extraction Delay Assessment</h2>
+  {delay_html}
+  <h2>Instrument Assessment</h2>
+  {instrument_html}
+  <h2>Acceptance Criteria Results</h2>
+  {criteria_table_to_badged_html(formatted_criteria)}
+  <h2>Sample-Level Review</h2>
+  {format_dbs_table(sample_review.head(10)).to_html(index=False)}
+  <h2>Outlier Investigation</h2>
+  {outlier_html}
+  <h2>Scientific Review Findings</h2>
+  {findings_html}
+  <h2>Visualizations</h2>
+  {figures_html}
+  <h2>Scientific Interpretation</h2>
+  <p class="note">{interpretation_html}</p>
+  <h2>Analyst Notes</h2>
+  <p>{notes}</p>
+  <h2>Deviations</h2>
+  <p>{deviations}</p>
+  <h2>Preliminary Conclusion</h2>
+  <p>{conclusions}</p>
+  <h2>Signature Section</h2>
+  <p>Prepared By: ________________________________</p>
+  <p>Reviewed By: ________________________________</p>
+  <p>Approved By: ________________________________</p>
+</body>
+</html>
+"""
+
+
+def build_dbs_pdf_report(
+    study_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    correlation_summary: pd.DataFrame,
+    agreement_summary: pd.DataFrame,
+    hematocrit_summary: pd.DataFrame,
+    delay_summary: pd.DataFrame,
+    instrument_summary: pd.DataFrame,
+    outlier_review: pd.DataFrame,
+    scientific_findings: list[str],
+    sample_review: pd.DataFrame,
+    overall_summary: dict[str, float | str],
+    criteria_table: pd.DataFrame,
+    interpretation: str,
+    metadata: dict[str, object],
+    criteria: dict[str, float],
+    decision: str,
+) -> bytes:
+    """Build a compact DBS Validation PDF report."""
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 12, "DBS Validation Report", ln=True, align="C")
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align="C")
+    _pdf_add_table(pdf, "Study Metadata", pd.DataFrame([{"Field": k, "Value": v or "Not specified"} for k, v in metadata.items()]))
+    _pdf_add_table(pdf, "Executive Summary", format_dbs_overall_summary(overall_summary))
+    _pdf_add_table(pdf, "Acceptance Criteria Results", format_dbs_criteria_table(criteria_table))
+    _pdf_add_table(pdf, "Bias Analysis", format_dbs_table(bias_summary))
+    _pdf_add_table(pdf, "Recovery Analysis", format_dbs_table(recovery_summary))
+    _pdf_add_table(pdf, "Correlation Analysis", format_dbs_table(correlation_summary))
+    _pdf_add_table(pdf, "Agreement Analysis", format_dbs_table(agreement_summary))
+    if not hematocrit_summary.empty:
+        _pdf_add_table(pdf, "Hematocrit Assessment", format_dbs_table(hematocrit_summary))
+    if not delay_summary.empty:
+        _pdf_add_table(pdf, "Extraction Delay Assessment", format_dbs_table(delay_summary))
+    if not instrument_summary.empty:
+        _pdf_add_table(pdf, "Instrument Assessment", format_dbs_table(instrument_summary))
+    _pdf_add_table(pdf, "Sample-Level Review", format_dbs_table(sample_review.head(8)))
+    if not outlier_review.empty:
+        _pdf_add_table(pdf, "Outlier Investigation", format_dbs_table(outlier_review.head(8)))
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Scientific Review Findings", ln=True)
+    pdf.set_font("Arial", "", 9)
+    for finding in scientific_findings:
+        pdf.multi_cell(0, 5, _pdf_clean(f"- {finding}"))
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Scientific Interpretation", ln=True)
+    pdf.set_font("Arial", "", 9)
+    pdf.multi_cell(0, 5, _pdf_clean(interpretation))
+    pdf.ln(4)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Signature Section", ln=True)
+    pdf.set_font("Arial", "", 10)
+    for label in ["Prepared By:", "Reviewed By:", "Approved By:", "Approval Date:"]:
+        pdf.cell(0, 8, f"{label} ________________________________", ln=True)
+    output = pdf.output(dest="S")
+    if isinstance(output, bytes):
+        return output
+    return output.encode("latin-1")
+
+
 def _pdf_clean(value: object) -> str:
     """Return PDF-safe text."""
 
