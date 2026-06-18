@@ -34,8 +34,10 @@ from analysis import (
     evaluate_stability_criteria,
     get_top_outliers,
     run_accuracy_study,
+    evaluate_dbs_criteria,
     evaluate_detection_capability_criteria,
     build_detection_decision_matrix,
+    run_dbs_validation_study,
     run_detection_capability_study,
     run_linearity_study,
     run_precision_study,
@@ -52,6 +54,18 @@ from plots import (
     create_blank_distribution_histogram,
     create_blank_replicate_boxplot,
     create_condition_difference_plot,
+    create_dbs_bland_altman_plot,
+    create_dbs_delay_bias_plot,
+    create_dbs_delay_category_bias_plot,
+    create_dbs_delay_distribution_plot,
+    create_dbs_distribution_comparison,
+    create_dbs_hematocrit_bias_plot,
+    create_dbs_hematocrit_percent_bias_plot,
+    create_dbs_instrument_bias_plot,
+    create_dbs_instrument_recovery_plot,
+    create_dbs_percent_bias_plot,
+    create_dbs_recovery_plot,
+    create_dbs_scatter_plot,
     create_detection_replicate_distribution_plot,
     create_detection_replicate_scatter_plot,
     create_detection_capability_ladder,
@@ -84,6 +98,9 @@ from report import (
     build_detection_executive_summary,
     build_detection_html_report,
     build_detection_pdf_report,
+    build_dbs_executive_summary,
+    build_dbs_html_report,
+    build_dbs_pdf_report,
     build_html_report,
     build_linearity_executive_summary,
     build_linearity_html_report,
@@ -102,6 +119,9 @@ from report import (
     format_detection_criteria_table,
     format_detection_overall_summary,
     format_detection_table,
+    format_dbs_criteria_table,
+    format_dbs_overall_summary,
+    format_dbs_table,
     format_linearity_criteria_table,
     format_linearity_equation,
     format_linearity_regression_summary,
@@ -116,6 +136,7 @@ from report import (
     generate_interpretation,
     generate_accuracy_interpretation,
     generate_detection_interpretation,
+    generate_dbs_interpretation,
     generate_linearity_interpretation,
     generate_precision_interpretation,
     generate_stability_risk_assessment,
@@ -140,6 +161,7 @@ LINEARITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "linearity_stud
 STABILITY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "stability_study_hba1c.csv"
 ACCURACY_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "accuracy_study_hba1c.csv"
 DETECTION_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "detection_capability_hba1c.csv"
+DBS_SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_data" / "dbs_validation_hba1c.csv"
 DASHBOARD_MODULES = (
     ("Method Comparison", "Paired reference and candidate comparison studies."),
     ("Accuracy Studies", "Bias, recovery, and agreement with expected values."),
@@ -724,6 +746,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
     is_stability = study_type == "Stability Study"
     is_accuracy = study_type == "Accuracy Study"
     is_detection = study_type == "Detection Capability"
+    is_dbs = study_type == "DBS Validation"
     default_study_name = (
         "HbA1c Precision Study"
         if is_precision
@@ -735,6 +758,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_accuracy
         else "HbA1c Detection Capability Study"
         if is_detection
+        else "HbA1c DBS Validation Study"
+        if is_dbs
         else "HbA1c Method Comparison Study"
     )
     default_objective = (
@@ -748,6 +773,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_accuracy
         else "Evaluate assay detection capability through determination of LoB, LoD, and LoQ using replicate measurements of blank and low-concentration samples."
         if is_detection
+        else "Evaluate whether DBS-derived results demonstrate acceptable analytical agreement with reference venous specimens."
+        if is_dbs
         else "Evaluate agreement between candidate and reference results."
     )
     default_design = (
@@ -761,6 +788,8 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         if is_accuracy
         else "Replicate blank, low-concentration, and quantitation-level samples analyzed to estimate LoB, LoD, and LoQ."
         if is_detection
+        else "Paired DBS and venous whole blood specimens analyzed to evaluate recovery, bias, correlation, and agreement."
+        if is_dbs
         else "Paired specimen comparison using reference and candidate measurements."
     )
 
@@ -795,11 +824,13 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
 
     reference_method = ""
     candidate_method = ""
-    if is_precision or is_linearity or is_stability or is_accuracy or is_detection:
+    if is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs:
         units = st.text_input("Units", value="%")
         key_prefix = (
             "detection"
             if is_detection
+            else "dbs"
+            if is_dbs
             else "accuracy"
             if is_accuracy
             else
@@ -812,6 +843,7 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         instrument_name = instrument_id = laboratory_site = ""
         reagent_lot = calibrator_lot = qc_lot = operator_name = ""
         study_protocol_id = clsi_guideline_reference = ""
+        dbs_collection_device = dbs_punch_size = extraction_method = specimen_matrix = ""
         with st.expander("Laboratory Documentation", expanded=False):
             lab_row_1 = st.columns(3)
             with lab_row_1[0]:
@@ -830,6 +862,30 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
                 qc_lot = st.text_input("Quality Control Lot Number", key=f"{key_prefix}_qc_lot")
 
             operator_name = st.text_input("Operator Name", key=f"{key_prefix}_operator_name")
+            if is_dbs:
+                dbs_row = st.columns(4)
+                with dbs_row[0]:
+                    dbs_collection_device = st.text_input(
+                        "DBS Collection Device",
+                        key=f"{key_prefix}_collection_device",
+                    )
+                with dbs_row[1]:
+                    dbs_punch_size = st.text_input(
+                        "DBS Punch Size",
+                        value="6 mm",
+                        key=f"{key_prefix}_punch_size",
+                    )
+                with dbs_row[2]:
+                    extraction_method = st.text_input(
+                        "Extraction Method",
+                        key=f"{key_prefix}_extraction_method",
+                    )
+                with dbs_row[3]:
+                    specimen_matrix = st.text_input(
+                        "Specimen Matrix",
+                        value="DBS vs Venous Whole Blood",
+                        key=f"{key_prefix}_specimen_matrix",
+                    )
             if is_detection:
                 detection_row = st.columns(2)
                 with detection_row[0]:
@@ -870,10 +926,10 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
         "Deviations": deviations,
         "Conclusions": conclusions,
     }
-    if not (is_precision or is_linearity or is_stability or is_accuracy or is_detection):
+    if not (is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs):
         metadata["Reference Method"] = reference_method
         metadata["Candidate Method"] = candidate_method
-    elif is_precision or is_linearity or is_stability or is_accuracy or is_detection:
+    elif is_precision or is_linearity or is_stability or is_accuracy or is_detection or is_dbs:
         metadata.update(
             {
                 "Instrument Name": instrument_name,
@@ -894,6 +950,20 @@ def render_study_documentation(study_type: str) -> dict[str, object]:
                     "Operator": operator_name,
                     "Study Protocol ID": study_protocol_id,
                     "CLSI Guideline Reference": clsi_guideline_reference,
+                }
+            )
+        if is_dbs:
+            metadata.update(
+                {
+                    "Assay": assay_name,
+                    "Biomarker": assay_name,
+                    "Protocol Number": "",
+                    "DBS Collection Device": dbs_collection_device,
+                    "DBS Punch Size": dbs_punch_size,
+                    "Extraction Method": extraction_method,
+                    "Instrument": instrument_name,
+                    "Specimen Matrix": specimen_matrix or "DBS vs Venous Whole Blood",
+                    "Specimen Comparison": "DBS vs Venous Whole Blood",
                 }
             )
     return metadata
@@ -1251,6 +1321,74 @@ def render_detection_criteria() -> dict[str, float]:
     }
 
 
+def render_dbs_criteria() -> dict[str, float]:
+    """Render user-defined preliminary DBS validation criteria."""
+
+    st.subheader("Acceptance Criteria")
+    st.caption(
+        "These criteria are user-defined preliminary screening thresholds, not regulatory approval."
+    )
+    row = st.columns(5)
+    with row[0]:
+        max_percent_bias = st.number_input(
+            "Maximum percent bias",
+            min_value=0.0,
+            value=10.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[1]:
+        min_recovery = st.number_input(
+            "Recovery lower limit (%)",
+            min_value=0.0,
+            max_value=150.0,
+            value=90.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[2]:
+        max_recovery = st.number_input(
+            "Recovery upper limit (%)",
+            min_value=0.0,
+            max_value=200.0,
+            value=110.0,
+            step=0.5,
+            format="%.2f",
+        )
+    with row[3]:
+        min_r_squared = st.number_input(
+            "Minimum acceptable R²",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.95,
+            step=0.01,
+            format="%.2f",
+        )
+    with row[4]:
+        borderline_zone = st.number_input(
+            "Borderline zone (%)",
+            min_value=0.0,
+            value=2.0,
+            step=0.5,
+            format="%.2f",
+        )
+    max_mean_difference = st.number_input(
+        "Maximum mean difference",
+        min_value=0.0,
+        value=0.50,
+        step=0.05,
+        format="%.2f",
+    )
+    return {
+        "Maximum Percent Bias": max_percent_bias,
+        "Minimum Recovery": min_recovery,
+        "Maximum Recovery": max_recovery,
+        "Minimum R²": min_r_squared,
+        "Maximum Mean Difference": max_mean_difference,
+        "Borderline Zone": borderline_zone,
+    }
+
+
 def optional_column_selectbox(
     label: str, columns: list[str], default_column: str | None = None
 ) -> str | None:
@@ -1435,6 +1573,61 @@ def build_detection_summary_csv(
     loq_summary.to_csv(buffer, index=False)
     buffer.write("\nAnalyzed Dataset\n")
     analyzed_data.to_csv(buffer, index=False)
+    return buffer.getvalue()
+
+
+def build_dbs_summary_csv(
+    metadata: dict[str, object],
+    criteria_table: pd.DataFrame,
+    overall_summary: pd.DataFrame,
+    study_summary: pd.DataFrame,
+    bias_summary: pd.DataFrame,
+    recovery_summary: pd.DataFrame,
+    correlation_summary: pd.DataFrame,
+    agreement_summary: pd.DataFrame,
+    hematocrit_summary: pd.DataFrame,
+    delay_summary: pd.DataFrame,
+    instrument_summary: pd.DataFrame,
+    outlier_review: pd.DataFrame,
+    scientific_findings: list[str],
+    sample_review: pd.DataFrame,
+) -> str:
+    """Build a sectioned CSV summary for DBS validation documentation."""
+
+    buffer = StringIO()
+    pd.DataFrame(
+        [{"Field": key, "Value": value or "Not specified"} for key, value in metadata.items()]
+    ).to_csv(buffer, index=False)
+    buffer.write("\nExecutive Summary\n")
+    overall_summary.to_csv(buffer, index=False)
+    buffer.write("\nAcceptance Criteria Results\n")
+    criteria_table.to_csv(buffer, index=False)
+    buffer.write("\nStudy Summary\n")
+    study_summary.to_csv(buffer, index=False)
+    buffer.write("\nBias Summary\n")
+    bias_summary.to_csv(buffer, index=False)
+    buffer.write("\nRecovery Summary\n")
+    recovery_summary.to_csv(buffer, index=False)
+    buffer.write("\nCorrelation Summary\n")
+    correlation_summary.to_csv(buffer, index=False)
+    buffer.write("\nAgreement Summary\n")
+    agreement_summary.to_csv(buffer, index=False)
+    if not hematocrit_summary.empty:
+        buffer.write("\nHematocrit Impact Assessment\n")
+        hematocrit_summary.to_csv(buffer, index=False)
+    if not delay_summary.empty:
+        buffer.write("\nExtraction Delay Assessment\n")
+        delay_summary.to_csv(buffer, index=False)
+    if not instrument_summary.empty:
+        buffer.write("\nInstrument Assessment\n")
+        instrument_summary.to_csv(buffer, index=False)
+    if not outlier_review.empty:
+        buffer.write("\nOutlier Investigation\n")
+        outlier_review.to_csv(buffer, index=False)
+    buffer.write("\nScientific Review Findings\n")
+    pd.DataFrame({"Finding": scientific_findings}).to_csv(buffer, index=False)
+    buffer.write("\nSample-Level Review\n")
+    sample_review.to_csv(buffer, index=False)
     return buffer.getvalue()
 
 
@@ -1783,6 +1976,464 @@ def render_detection_workspace(metadata: dict[str, object]) -> None:
                 "Download detection capability report PDF",
                 data=pdf_report,
                 file_name="detection_capability_report.pdf",
+                mime="application/pdf",
+            )
+
+
+def render_dbs_workspace(metadata: dict[str, object]) -> None:
+    """Render the DBS Validation workflow."""
+
+    criteria = render_dbs_criteria()
+    uploaded_file = st.file_uploader(
+        "Upload DBS validation data",
+        type=["csv", "xlsx", "xls"],
+        help="Upload paired DBS and reference specimen results.",
+    )
+    use_sample_data = st.checkbox(
+        "Use included sample HbA1c DBS validation dataset",
+        value=uploaded_file is None,
+    )
+
+    data = None
+    if uploaded_file is not None:
+        try:
+            data = load_uploaded_file(uploaded_file)
+        except Exception as exc:
+            st.error(f"Unable to load file: {exc}")
+            st.stop()
+    elif use_sample_data:
+        data = pd.read_csv(DBS_SAMPLE_DATA_PATH)
+
+    if data is None:
+        st.info("Upload a CSV or Excel file to begin.")
+        st.stop()
+
+    metadata["Sample Count"] = len(data)
+    st.subheader("Data Preview")
+    st.dataframe(data.head(25), width="stretch")
+
+    numeric_columns = get_numeric_columns(data)
+    all_columns = list(data.columns)
+    if len(numeric_columns) < 2:
+        st.error("Reference and DBS numeric result columns are required.")
+        st.stop()
+
+    st.subheader("Column Selection")
+    first_row = st.columns(3)
+    with first_row[0]:
+        sample_id_column = st.selectbox(
+            "Sample ID column",
+            all_columns,
+            index=all_columns.index("Sample ID") if "Sample ID" in all_columns else 0,
+        )
+    with first_row[1]:
+        reference_column = st.selectbox(
+            "Reference Result column",
+            numeric_columns,
+            index=numeric_columns.index("Reference Result")
+            if "Reference Result" in numeric_columns
+            else 0,
+        )
+    with first_row[2]:
+        dbs_column = st.selectbox(
+            "DBS Result column",
+            numeric_columns,
+            index=numeric_columns.index("DBS Result")
+            if "DBS Result" in numeric_columns
+            else min(1, len(numeric_columns) - 1),
+        )
+
+    second_row = st.columns(4)
+    with second_row[0]:
+        collection_column = optional_column_selectbox(
+            "Collection Date column",
+            all_columns,
+            "Collection Date" if "Collection Date" in all_columns else None,
+        )
+    with second_row[1]:
+        extraction_column = optional_column_selectbox(
+            "Extraction Date column",
+            all_columns,
+            "Extraction Date" if "Extraction Date" in all_columns else None,
+        )
+    with second_row[2]:
+        hematocrit_column = optional_column_selectbox(
+            "Hematocrit column",
+            all_columns,
+            "Hematocrit" if "Hematocrit" in all_columns else None,
+        )
+    with second_row[3]:
+        include_column = optional_column_selectbox(
+            "Include in Analysis column",
+            all_columns,
+            "Include in Analysis" if "Include in Analysis" in all_columns else None,
+        )
+
+    third_row = st.columns(2)
+    with third_row[0]:
+        replicate_column = optional_column_selectbox(
+            "Replicate column",
+            all_columns,
+            "Replicate" if "Replicate" in all_columns else None,
+        )
+    with third_row[1]:
+        instrument_column = optional_column_selectbox(
+            "Instrument column",
+            all_columns,
+            "Instrument" if "Instrument" in all_columns else None,
+        )
+    _ = (collection_column, extraction_column, hematocrit_column, replicate_column, instrument_column)
+
+    if reference_column == dbs_column:
+        st.warning("Select different reference and DBS result columns.")
+
+    run_analysis = st.button("Run DBS Validation Analysis", type="primary")
+    if run_analysis:
+        if reference_column == dbs_column:
+            st.stop()
+        try:
+            result = run_dbs_validation_study(
+                data=data,
+                sample_id_column=sample_id_column,
+                reference_column=reference_column,
+                dbs_column=dbs_column,
+                include_column=include_column,
+                max_percent_bias=criteria["Maximum Percent Bias"],
+                min_recovery=criteria["Minimum Recovery"],
+                max_recovery=criteria["Maximum Recovery"],
+            )
+        except Exception as exc:
+            st.error(f"DBS validation analysis could not be completed: {exc}")
+            st.stop()
+
+        criteria_result = evaluate_dbs_criteria(
+            result.overall_summary,
+            max_percent_bias=criteria["Maximum Percent Bias"],
+            min_recovery=criteria["Minimum Recovery"],
+            max_recovery=criteria["Maximum Recovery"],
+            min_r_squared=criteria["Minimum R²"],
+            max_mean_difference=criteria["Maximum Mean Difference"],
+            borderline_zone=criteria["Borderline Zone"],
+        )
+        decision = str(criteria_result["decision"])
+        criteria_table = build_criteria_table(criteria_result)
+        display_criteria = format_dbs_criteria_table(criteria_table)
+        display_overall = format_dbs_overall_summary(result.overall_summary)
+        display_study = format_dbs_table(result.study_summary)
+        display_bias = format_dbs_table(result.bias_summary)
+        display_recovery = format_dbs_table(result.recovery_summary)
+        display_correlation = format_dbs_table(result.correlation_summary)
+        display_agreement = format_dbs_table(result.agreement_summary)
+        display_hematocrit = format_dbs_table(result.hematocrit_summary)
+        display_delay = format_dbs_table(result.delay_summary)
+        display_instrument = format_dbs_table(result.instrument_summary)
+        display_outlier_review = format_dbs_table(result.outlier_review)
+        display_sample_review = format_dbs_table(result.sample_review)
+        interpretation = generate_dbs_interpretation(
+            result.overall_summary, criteria, decision, metadata
+        )
+        scientific_findings = (
+            ["All predefined acceptance criteria were met."]
+            if decision == "PASS"
+            else ["One or more preliminary acceptance criteria require reviewer attention."]
+            if decision in {"PASS WITH CAUTION", "BORDERLINE", "REVIEW"}
+            else ["One or more preliminary acceptance criteria were not met."]
+        ) + result.scientific_findings
+
+        summary_values = build_dbs_executive_summary(
+            result.overall_summary, decision, display_criteria
+        )
+        st.subheader("DBS Executive Summary")
+        for row_start in range(0, len(summary_values), 4):
+            columns = st.columns(4)
+            for column, (label, value) in zip(
+                columns, list(summary_values.items())[row_start : row_start + 4]
+            ):
+                with column:
+                    render_metric_card(
+                        label,
+                        value,
+                        status=value if label == "Overall Decision" else None,
+                    )
+
+        st.subheader("DBS Validation Summary")
+        show_decision(decision)
+        st.dataframe(display_overall, width="stretch")
+        st.dataframe(display_study, width="stretch")
+
+        st.subheader("Acceptance Criteria Results")
+        render_badged_criteria_table(display_criteria)
+
+        summary_left, summary_right = st.columns(2)
+        with summary_left:
+            st.subheader("Bias Summary")
+            st.dataframe(display_bias, width="stretch")
+            st.subheader("Correlation Summary")
+            st.dataframe(display_correlation, width="stretch")
+        with summary_right:
+            st.subheader("Recovery Summary")
+            st.dataframe(display_recovery, width="stretch")
+            st.subheader("Agreement Summary")
+            st.dataframe(display_agreement, width="stretch")
+
+        st.subheader("Sample-Level Review")
+        st.dataframe(display_sample_review.head(10), width="stretch")
+
+        st.subheader("Hematocrit Impact Assessment")
+        if result.hematocrit_summary.empty:
+            st.info("Hematocrit impact assessment was not available for this dataset.")
+        else:
+            hct_status = (
+                "PASS"
+                if not result.hematocrit_summary["Status"].isin(["REVIEW", "INVESTIGATE"]).any()
+                else "REVIEW"
+            )
+            show_decision(hct_status)
+            st.dataframe(display_hematocrit, width="stretch")
+
+        st.subheader("Extraction Delay Assessment")
+        if result.delay_summary.empty:
+            st.info("Extraction delay assessment was not available for this dataset.")
+        else:
+            st.dataframe(display_delay, width="stretch")
+
+        st.subheader("Instrument Comparison Assessment")
+        if result.instrument_summary.empty:
+            st.info("Instrument comparison was not available for this dataset.")
+        else:
+            st.dataframe(display_instrument, width="stretch")
+
+        st.subheader("Outlier Investigation Dashboard")
+        if result.outlier_review.empty:
+            st.info("No outlier investigation findings were available.")
+        else:
+            st.dataframe(display_outlier_review, width="stretch")
+
+        st.subheader("Scientific Review Findings")
+        for finding in scientific_findings:
+            st.info(finding)
+
+        st.subheader("Scientific Interpretation")
+        st.info(interpretation)
+
+        st.subheader("Visualizations")
+        scatter_plot = create_dbs_scatter_plot(
+            result.analyzed_data, result.overall_summary
+        )
+        bland_altman_plot = create_dbs_bland_altman_plot(
+            result.analyzed_data, result.overall_summary
+        )
+        recovery_plot = create_dbs_recovery_plot(
+            result.analyzed_data,
+            criteria["Minimum Recovery"],
+            criteria["Maximum Recovery"],
+        )
+        percent_bias_plot = create_dbs_percent_bias_plot(
+            result.analyzed_data, criteria["Maximum Percent Bias"]
+        )
+        distribution_plot = create_dbs_distribution_comparison(result.analyzed_data)
+        hematocrit_bias_plot = (
+            create_dbs_hematocrit_bias_plot(result.analyzed_data)
+            if "Hematocrit" in result.analyzed_data.columns
+            else None
+        )
+        hematocrit_percent_bias_plot = (
+            create_dbs_hematocrit_percent_bias_plot(result.analyzed_data)
+            if "Hematocrit" in result.analyzed_data.columns
+            else None
+        )
+        delay_bias_plot = (
+            create_dbs_delay_bias_plot(result.analyzed_data)
+            if "Extraction Delay (days)" in result.analyzed_data.columns
+            else None
+        )
+        delay_distribution_plot = (
+            create_dbs_delay_distribution_plot(result.analyzed_data)
+            if "Extraction Delay (days)" in result.analyzed_data.columns
+            else None
+        )
+        delay_category_plot = (
+            create_dbs_delay_category_bias_plot(result.analyzed_data)
+            if "Delay Category" in result.analyzed_data.columns
+            else None
+        )
+        instrument_bias_plot = (
+            create_dbs_instrument_bias_plot(result.instrument_summary)
+            if not result.instrument_summary.empty
+            else None
+        )
+        instrument_recovery_plot = (
+            create_dbs_instrument_recovery_plot(result.instrument_summary)
+            if not result.instrument_summary.empty
+            else None
+        )
+        st.plotly_chart(scatter_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(bland_altman_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(distribution_plot, width="stretch")
+        chart_left, chart_right = st.columns(2)
+        with chart_left:
+            st.plotly_chart(recovery_plot, width="stretch")
+        with chart_right:
+            st.plotly_chart(percent_bias_plot, width="stretch")
+        if hematocrit_bias_plot is not None and hematocrit_percent_bias_plot is not None:
+            chart_left, chart_right = st.columns(2)
+            with chart_left:
+                st.plotly_chart(hematocrit_bias_plot, width="stretch")
+            with chart_right:
+                st.plotly_chart(hematocrit_percent_bias_plot, width="stretch")
+        if delay_bias_plot is not None and delay_distribution_plot is not None:
+            chart_left, chart_right = st.columns(2)
+            with chart_left:
+                st.plotly_chart(delay_bias_plot, width="stretch")
+            with chart_right:
+                st.plotly_chart(delay_distribution_plot, width="stretch")
+        if delay_category_plot is not None:
+            st.plotly_chart(delay_category_plot, width="stretch")
+        if instrument_bias_plot is not None and instrument_recovery_plot is not None:
+            chart_left, chart_right = st.columns(2)
+            with chart_left:
+                st.plotly_chart(instrument_bias_plot, width="stretch")
+            with chart_right:
+                st.plotly_chart(instrument_recovery_plot, width="stretch")
+
+        st.subheader("Analyzed Dataset")
+        st.dataframe(format_dbs_table(result.analyzed_data), width="stretch")
+
+        html_report = build_dbs_html_report(
+            study_summary=result.study_summary,
+            bias_summary=result.bias_summary,
+            recovery_summary=result.recovery_summary,
+            correlation_summary=result.correlation_summary,
+            agreement_summary=result.agreement_summary,
+            hematocrit_summary=result.hematocrit_summary,
+            delay_summary=result.delay_summary,
+            instrument_summary=result.instrument_summary,
+            outlier_review=result.outlier_review,
+            scientific_findings=scientific_findings,
+            sample_review=result.sample_review,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+            visualization_html={
+                "DBS vs Reference Scatter Plot": scatter_plot.to_html(
+                    full_html=False, include_plotlyjs="cdn"
+                ),
+                "Bland-Altman Plot": bland_altman_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Recovery Plot": recovery_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Percent Bias Plot": percent_bias_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                "Distribution Comparison": distribution_plot.to_html(
+                    full_html=False, include_plotlyjs=False
+                ),
+                **(
+                    {
+                        "Hematocrit vs Bias Plot": hematocrit_bias_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                        "Hematocrit vs Percent Bias Plot": hematocrit_percent_bias_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                    }
+                    if hematocrit_bias_plot is not None and hematocrit_percent_bias_plot is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "Delay vs Bias Plot": delay_bias_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                        "Delay Distribution Histogram": delay_distribution_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                        "Average Bias by Delay Category": delay_category_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                    }
+                    if delay_bias_plot is not None
+                    and delay_distribution_plot is not None
+                    and delay_category_plot is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "Bias by Instrument Plot": instrument_bias_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                        "Recovery by Instrument Plot": instrument_recovery_plot.to_html(
+                            full_html=False, include_plotlyjs=False
+                        ),
+                    }
+                    if instrument_bias_plot is not None and instrument_recovery_plot is not None
+                    else {}
+                ),
+            },
+        )
+        pdf_report = build_dbs_pdf_report(
+            study_summary=result.study_summary,
+            bias_summary=result.bias_summary,
+            recovery_summary=result.recovery_summary,
+            correlation_summary=result.correlation_summary,
+            agreement_summary=result.agreement_summary,
+            hematocrit_summary=result.hematocrit_summary,
+            delay_summary=result.delay_summary,
+            instrument_summary=result.instrument_summary,
+            outlier_review=result.outlier_review,
+            scientific_findings=scientific_findings,
+            sample_review=result.sample_review,
+            overall_summary=result.overall_summary,
+            criteria_table=criteria_table,
+            interpretation=interpretation,
+            metadata=metadata,
+            criteria=criteria,
+            decision=decision,
+        )
+
+        export_left, export_middle, export_right = st.columns(3)
+        with export_left:
+            st.download_button(
+                "Download DBS summary CSV",
+                data=build_dbs_summary_csv(
+                    metadata,
+                    display_criteria,
+                    display_overall,
+                    display_study,
+                    display_bias,
+                    display_recovery,
+                    display_correlation,
+                    display_agreement,
+                    display_hematocrit,
+                    display_delay,
+                    display_instrument,
+                    display_outlier_review,
+                    scientific_findings,
+                    display_sample_review,
+                ).encode("utf-8"),
+                file_name="dbs_validation_summary.csv",
+                mime="text/csv",
+            )
+        with export_middle:
+            st.download_button(
+                "Generate DBS Validation Report HTML",
+                data=html_report.encode("utf-8"),
+                file_name="dbs_validation_report.html",
+                mime="text/html",
+            )
+        with export_right:
+            st.download_button(
+                "Generate DBS Validation Report PDF",
+                data=pdf_report,
+                file_name="dbs_validation_report.pdf",
                 mime="application/pdf",
             )
 
@@ -2867,6 +3518,11 @@ def main() -> None:
     if study_type == "Detection Capability":
         metadata = render_study_documentation(study_type)
         render_detection_workspace(metadata)
+        st.stop()
+
+    if study_type == "DBS Validation":
+        metadata = render_study_documentation(study_type)
+        render_dbs_workspace(metadata)
         st.stop()
 
     if study_type != "Method Comparison":
