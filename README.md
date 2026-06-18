@@ -105,8 +105,6 @@ Future directions include:
 * AI-Assisted Validation Workflows
 * Scientific Intelligence Layer
 
-The goal is not simply to automate calculations, but to help scientists move from data to decisions through transparent and reproducible workflows.
-
 ⸻
 
 Technology Stack
