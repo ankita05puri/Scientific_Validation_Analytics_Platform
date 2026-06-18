@@ -147,6 +147,11 @@ def _base_metadata(
         "Instrument": project_metadata.get("Instrument", ""),
         "Protocol Number": project_metadata.get("Protocol Number", ""),
         "Laboratory Name": project_metadata.get("Laboratory Name", ""),
+        "Department": project_metadata.get("Department", ""),
+        "Address": project_metadata.get("Address", ""),
+        "Report Logo": project_metadata.get("Report Logo", ""),
+        "Organization Branding": project_metadata.get("Organization Branding", ""),
+        "Report Footer": project_metadata.get("Report Footer", ""),
         "Notes": "",
         "Deviations": "",
         "Conclusions": "",
@@ -168,7 +173,7 @@ def _traceability(
     """Build common audit-trail fields for consolidated study reports."""
 
     return {
-        "analysis_version": "v0.7.1",
+        "analysis_version": "v1.0.0",
         "source_dataset": source_dataset,
         "analysis_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "sample_count": int(len(data)),

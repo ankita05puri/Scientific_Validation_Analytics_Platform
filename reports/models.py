@@ -24,7 +24,7 @@ class StudyReport:
     interpretation: str
     visualizations: dict[str, str] = field(default_factory=dict)
     raw_outputs: dict[str, pd.DataFrame] = field(default_factory=dict)
-    analysis_version: str = "v0.7.1"
+    analysis_version: str = "v1.0.0"
     source_dataset: str = "Built-in sample dataset"
     analysis_timestamp: str = ""
     sample_count: int = 0

@@ -2,9 +2,28 @@
 
 ## Vision
 
-Build a modular scientific validation platform that enables laboratories and assay developers to perform validation studies, generate statistical analyses, visualize results, and produce validation-ready reports.
+Build a modular scientific validation platform that enables laboratories and assay developers to perform validation studies, generate statistical analyses, visualize results, manage validation projects, and produce validation-ready reports.
 
-## Completed
+## Current Release
+
+### v1.0.0 - Validation Program Management
+
+Release focused on managing complete assay validation programs rather than only individual validation studies.
+
+- Unified platform dashboard
+- Validation program workspace
+- Program-level study assignment
+- Program dashboard and readiness assessment
+- Validation coverage matrix
+- Program activity timeline
+- Central validation study workspace
+- Reports library
+- Sample dataset library
+- Platform settings
+- Professional About page
+- Standardized versioning and release metadata
+
+## Completed Validation Modules
 
 ### v0.1.0 - Method Comparison Module
 
@@ -40,21 +59,9 @@ Build a modular scientific validation platform that enables laboratories and ass
 - Percent change from baseline
 - Recovery calculations
 - Stability trend visualizations
-- Freeze-thaw workflows
-- Reagent stability workflows
+- Storage condition workflows
 - Acceptance criteria engine
-- HTML reporting
-
-### v0.4.1 - Stability Study Enhancement Release
-
-- Storage condition comparison analysis
-- Pass with caution decision classification
-- Potential stability outlier identification
-- Stability risk assessment narrative
-- Bias and condition-difference visualizations
-- PDF report export
-
-## In Progress
+- HTML and PDF reporting
 
 ### v0.5.0 - Accuracy Study Module
 
@@ -72,16 +79,7 @@ Build a modular scientific validation platform that enables laboratories and ass
 - Limit of Quantitation (LoQ)
 - Detection capability visualizations
 - Acceptance criteria engine
-- HTML reporting
-
-### v0.6.1 - Detection Capability Enhancement
-
-- CLSI-style calculation methodology transparency
-- Replicate-level data quality assessment
-- Detection capability decision matrix
-- Enhanced LoB, LoD, and LoQ interpretation
-- Additional scientific review visualizations
-- PDF report export
+- HTML and PDF reporting
 
 ### v0.7.0 - Validation Reports Engine
 
@@ -91,41 +89,36 @@ Build a modular scientific validation platform that enables laboratories and ass
 - Multi-study export
 - PDF generation
 
-## Planned
-
 ### v0.8.0 - DBS Validation Module
 
-- Dried Blood Spot validation workflows
-- DBS vs whole blood comparison
-- Recovery correction analysis
-- Agreement assessment
+- Dried Blood Spot validation workflow
+- DBS vs reference specimen comparison
+- Bias, recovery, correlation, and agreement assessment
+- HTML and PDF reporting
 
 ### v0.9.0 - Microtainer Validation Module
 
-- Capillary specimen validation
-- Venous vs microtainer comparison
-- Bias assessment
-- Agreement workflows
+- Capillary microtainer specimen validation workflow
+- Microtainer vs reference specimen comparison
+- Bias, recovery, correlation, and agreement assessment
+- HTML, PDF, and CSV exports
 
-### v0.10.0 - Validation Dashboard
+## v1.0.0 Platform Scope
 
-- Study management
-- Study history
-- Validation project tracking
-- Dashboard analytics
-
-## v1.0.0 Release Goal
-
-A complete validation analytics platform supporting:
+The v1.0.0 release supports:
 
 - Method Comparison
 - Precision
+- Accuracy
 - Linearity
 - Stability
-- Accuracy
+- Detection Capability
 - DBS Validation
 - Microtainer Validation
-- Detection Capability
 - Validation Reporting
 
-with automated statistical analysis, visualization, and validation-ready reporting.
+with automated statistical analysis, visualization, validation-ready reporting, project tracking, shared settings, and centralized platform navigation.
+
+## Future Direction
+
+Future v2.0 work may introduce a separate Scientific Intelligence Platform layer. AI recommendations, knowledge graphs, predictive analytics, and scientific investigation tools are intentionally out of scope for v1.0.0.
