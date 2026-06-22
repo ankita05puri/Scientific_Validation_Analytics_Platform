@@ -1,6 +1,6 @@
-# LabOS
+LabOS
 
-## Scientific Validation Analytics Platform
+Scientific Validation Analytics Platform
 
 The first module of LabOS, a laboratory operating system designed to support scientific validation, study execution, scientific review, and validation reporting workflows.
 
