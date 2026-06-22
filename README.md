@@ -1,4 +1,8 @@
-Scientific Validation Analytics Platform
+# LabOS
+
+## Scientific Validation Analytics Platform
+
+The first module of LabOS, an AI-powered laboratory intelligence platform designed to support validation analytics, scientific knowledge retrieval, and investigation workflows.
 
 Overview
 
