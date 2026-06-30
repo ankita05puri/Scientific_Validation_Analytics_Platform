@@ -27,6 +27,7 @@ class PrecisionResult:
     level_summary: pd.DataFrame
     day_summary: pd.DataFrame
     run_summary: pd.DataFrame
+    variance_components: pd.DataFrame
     result_column: str
     level_column: str
     day_column: str | None = None
@@ -572,7 +573,7 @@ def prepare_precision_data(
     precision_data["Result"] = pd.to_numeric(precision_data["Result"], errors="coerce")
     for column in ["Day", "Run", "Replicate"]:
         if column in precision_data.columns:
-            precision_data[column] = pd.to_numeric(precision_data[column], errors="coerce")
+            precision_data[column] = precision_data[column].astype(str).str.strip()
 
     precision_data = precision_data.dropna(subset=["Result", "Level"]).reset_index(drop=True)
     precision_data["Measurement Order"] = np.arange(1, len(precision_data) + 1)
@@ -597,6 +598,78 @@ def calculate_precision_summary(analyzed_data: pd.DataFrame) -> tuple[pd.DataFra
         run_summary = _precision_summary_by(analyzed_data, run_group_columns)
 
     return level_summary, day_summary, run_summary
+
+
+def calculate_precision_variance_components(analyzed_data: pd.DataFrame) -> pd.DataFrame:
+    """Estimate precision variance components by QC level.
+
+    This provides a practical laboratory summary of where precision variation is
+    observed. It is intentionally conservative and transparent: within-run CV is
+    pooled from replicate groups, between-run CV is estimated from run means,
+    and between-day CV is estimated from day means when those groupings exist.
+    """
+
+    rows: list[dict[str, float | str | int]] = []
+    for level, level_data in analyzed_data.groupby("Level", dropna=False):
+        mean_result = _safe_float(level_data["Result"].mean())
+        total_sd = _safe_float(level_data["Result"].std(ddof=1))
+        total_cv = (total_sd / mean_result) * 100 if mean_result else np.nan
+
+        within_run_sd = np.nan
+        if {"Day", "Run"}.issubset(level_data.columns):
+            replicate_variances = (
+                level_data.groupby(["Day", "Run"], dropna=False)["Result"]
+                .agg(N="count", Variance=lambda values: values.var(ddof=1))
+                .reset_index()
+            )
+            replicate_variances = replicate_variances[replicate_variances["N"] > 1]
+            denominator = int((replicate_variances["N"] - 1).sum())
+            if denominator > 0:
+                pooled_variance = (
+                    (replicate_variances["N"] - 1) * replicate_variances["Variance"]
+                ).sum() / denominator
+                within_run_sd = float(np.sqrt(pooled_variance))
+
+        between_run_sd = np.nan
+        if {"Day", "Run"}.issubset(level_data.columns):
+            run_means = (
+                level_data.groupby(["Day", "Run"], dropna=False)["Result"]
+                .mean()
+                .reset_index(name="Run Mean")
+            )
+            if len(run_means) > 1:
+                between_run_sd = _safe_float(run_means["Run Mean"].std(ddof=1))
+
+        between_day_sd = np.nan
+        if "Day" in level_data.columns:
+            day_means = (
+                level_data.groupby("Day", dropna=False)["Result"]
+                .mean()
+                .reset_index(name="Day Mean")
+            )
+            if len(day_means) > 1:
+                between_day_sd = _safe_float(day_means["Day Mean"].std(ddof=1))
+
+        def cv_from_sd(sd_value: float) -> float:
+            return (sd_value / mean_result) * 100 if mean_result and not pd.isna(sd_value) else np.nan
+
+        rows.append(
+            {
+                "Level": level,
+                "N": int(level_data["Result"].count()),
+                "Mean": mean_result,
+                "Within-Run SD": within_run_sd,
+                "Within-Run CV%": cv_from_sd(within_run_sd),
+                "Between-Run SD": between_run_sd,
+                "Between-Run CV%": cv_from_sd(between_run_sd),
+                "Between-Day SD": between_day_sd,
+                "Between-Day CV%": cv_from_sd(between_day_sd),
+                "Total SD": total_sd,
+                "Total CV%": total_cv,
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def evaluate_precision_criteria(
@@ -656,11 +729,13 @@ def run_precision_study(
         sample_id_column=sample_id_column,
     )
     level_summary, day_summary, run_summary = calculate_precision_summary(analyzed_data)
+    variance_components = calculate_precision_variance_components(analyzed_data)
     return PrecisionResult(
         analyzed_data=analyzed_data,
         level_summary=level_summary,
         day_summary=day_summary,
         run_summary=run_summary,
+        variance_components=variance_components,
         result_column=result_column,
         level_column=level_column,
         day_column=day_column,
@@ -911,19 +986,23 @@ def run_linearity_study(
     )
 
 
-def _timepoint_sort_key(value: object) -> tuple[int, float, str]:
-    """Return a stable sort key that keeps baseline first, then numeric timepoints."""
+def _timepoint_sort_value(value: object) -> float:
+    """Return a numeric sort value that keeps baseline first, then numeric timepoints."""
 
     label = str(value).strip()
     normalized = label.lower()
     if normalized in {"baseline", "base", "day 0", "d0", "t0", "0"}:
-        return (0, 0.0, label)
+        return 0.0
+
+    direct_value = pd.to_numeric(label, errors="coerce")
+    if not pd.isna(direct_value):
+        return float(direct_value)
 
     digits = "".join(character if character.isdigit() or character == "." else " " for character in normalized)
     values = [part for part in digits.split() if part]
     if values:
-        return (1, float(values[0]), label)
-    return (2, 0.0, label)
+        return float(values[0])
+    return np.nan
 
 
 def _is_baseline_timepoint(value: object) -> bool:
@@ -1002,7 +1081,22 @@ def prepare_stability_data(
     if stability_data.empty:
         raise ValueError("No analyzed rows have a matching sample baseline.")
 
-    stability_data["Timepoint Sort"] = stability_data["Timepoint"].map(_timepoint_sort_key)
+    stability_data["Timepoint Sort"] = pd.to_numeric(
+        stability_data["Timepoint"].map(_timepoint_sort_value),
+        errors="coerce",
+    )
+    if stability_data["Timepoint Sort"].isna().any():
+        invalid_timepoints = (
+            stability_data.loc[stability_data["Timepoint Sort"].isna(), "Timepoint"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        raise ValueError(
+            "Stability timepoints must be numeric or baseline labels. "
+            f"Unmapped timepoints: {', '.join(invalid_timepoints)}."
+        )
     stability_data["Difference"] = stability_data["Result"] - stability_data["Baseline Result"]
     stability_data["Bias"] = stability_data["Difference"]
     stability_data["Percent Change"] = np.where(

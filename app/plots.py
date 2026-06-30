@@ -9,6 +9,14 @@ import plotly.graph_objects as go
 
 from validation.visualization import STATUS_COLOR_MAP
 
+METHOD_POINT_COLOR = "#4865f4"
+METHOD_REGRESSION_COLOR = "#102a43"
+METHOD_REFERENCE_COLOR = "#64748b"
+METHOD_BIAS_COLOR = "#b42318"
+METHOD_LIMIT_COLOR = "#6d5bd0"
+METHOD_GRID_COLOR = "#e6ebf2"
+METHOD_TEXT_COLOR = "#334155"
+
 
 def _format_number(value: float, digits: int = 3) -> str:
     """Format numeric labels while handling missing values."""
@@ -16,6 +24,49 @@ def _format_number(value: float, digits: int = 3) -> str:
     if pd.isna(value):
         return "NA"
     return f"{value:.{digits}f}"
+
+
+def _apply_method_comparison_figure_style(figure: go.Figure, *, height: int = 430) -> go.Figure:
+    """Apply the professional Method Comparison chart style."""
+
+    figure.update_layout(
+        template="plotly_white",
+        height=height,
+        margin={"l": 64, "r": 26, "t": 42, "b": 58},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        font={"family": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", "color": METHOD_TEXT_COLOR},
+        title={"font": {"size": 16, "color": "#202939"}, "x": 0, "xanchor": "left"},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "font": {"size": 12, "color": METHOD_TEXT_COLOR},
+        },
+        legend_title_text="",
+        hovermode="closest",
+    )
+    figure.update_xaxes(
+        showgrid=True,
+        gridcolor=METHOD_GRID_COLOR,
+        zeroline=False,
+        linecolor="#cbd5e1",
+        ticks="outside",
+        tickfont={"color": "#64748b"},
+        title_font={"color": "#64748b", "size": 13},
+    )
+    figure.update_yaxes(
+        showgrid=True,
+        gridcolor=METHOD_GRID_COLOR,
+        zeroline=False,
+        linecolor="#cbd5e1",
+        ticks="outside",
+        tickfont={"color": "#64748b"},
+        title_font={"color": "#64748b", "size": 13},
+    )
+    return figure
 
 
 def create_scatter_plot(analyzed_data: pd.DataFrame, summary: dict[str, float]) -> go.Figure:
@@ -28,6 +79,15 @@ def create_scatter_plot(analyzed_data: pd.DataFrame, summary: dict[str, float]) 
         labels={"Reference": "Reference Result", "Candidate": "Candidate Result"},
         title="Reference vs Candidate Method",
         template="plotly_white",
+    )
+    figure.update_traces(
+        marker={
+            "color": METHOD_POINT_COLOR,
+            "size": 7,
+            "opacity": 0.82,
+            "line": {"color": "#ffffff", "width": 0.8},
+        },
+        hovertemplate="Reference=%{x:.3f}<br>Candidate=%{y:.3f}<extra></extra>",
     )
 
     slope = summary.get("Slope", np.nan)
@@ -43,7 +103,7 @@ def create_scatter_plot(analyzed_data: pd.DataFrame, summary: dict[str, float]) 
                 y=y_values,
                 mode="lines",
                 name="Regression line",
-                line={"color": "#d62728", "width": 2},
+                line={"color": METHOD_REGRESSION_COLOR, "width": 2.5},
             )
         )
 
@@ -60,12 +120,13 @@ def create_scatter_plot(analyzed_data: pd.DataFrame, summary: dict[str, float]) 
         text=f"{equation}<br>{r_squared}",
         showarrow=False,
         align="left",
-        bgcolor="rgba(255,255,255,0.85)",
-        bordercolor="#d9d9d9",
+        bgcolor="rgba(248,250,252,0.94)",
+        bordercolor="#cbd5e1",
         borderwidth=1,
+        borderpad=8,
+        font={"size": 12, "color": METHOD_TEXT_COLOR},
     )
-    figure.update_layout(legend_title_text="")
-    return figure
+    return _apply_method_comparison_figure_style(figure)
 
 
 def create_percent_bias_histogram(analyzed_data: pd.DataFrame) -> go.Figure:
@@ -102,29 +163,70 @@ def create_difference_plot(analyzed_data: pd.DataFrame) -> go.Figure:
         title="Difference Plot",
         template="plotly_white",
     )
+    figure.update_traces(
+        marker={
+            "color": METHOD_POINT_COLOR,
+            "size": 7,
+            "opacity": 0.82,
+            "line": {"color": "#ffffff", "width": 0.8},
+        },
+        hovertemplate="Average=%{x:.3f}<br>Difference=%{y:.3f}<extra></extra>",
+    )
     figure.add_hline(
         y=mean_difference,
         line_dash="dash",
-        line_color="#d62728",
+        line_color=METHOD_BIAS_COLOR,
         annotation_text=f"Mean difference = {mean_difference:.3f}",
         annotation_position="top left",
     )
     figure.add_hline(
         y=upper_loa,
         line_dash="dot",
-        line_color="#9467bd",
+        line_color=METHOD_LIMIT_COLOR,
         annotation_text=f"Upper LOA = {upper_loa:.3f}",
         annotation_position="top left",
     )
     figure.add_hline(
         y=lower_loa,
         line_dash="dot",
-        line_color="#9467bd",
+        line_color=METHOD_LIMIT_COLOR,
         annotation_text=f"Lower LOA = {lower_loa:.3f}",
         annotation_position="bottom left",
     )
-    figure.add_hline(y=0, line_color="#808080", line_width=1)
-    return figure
+    figure.add_hline(y=0, line_color=METHOD_REFERENCE_COLOR, line_width=1.2)
+    return _apply_method_comparison_figure_style(figure)
+
+
+def create_method_comparison_residual_plot(analyzed_data: pd.DataFrame, summary: dict[str, float]) -> go.Figure:
+    """Create residual plot for candidate results against fitted regression."""
+
+    data = analyzed_data.copy()
+    slope = summary.get("Slope", np.nan)
+    intercept = summary.get("Intercept", np.nan)
+    if pd.isna(slope) or pd.isna(intercept):
+        data["Residual"] = data["Candidate"] - data["Reference"]
+    else:
+        data["Residual"] = data["Candidate"] - ((float(slope) * data["Reference"]) + float(intercept))
+    figure = px.scatter(
+        data,
+        x="Reference",
+        y="Residual",
+        labels={"Reference": "Reference Result", "Residual": "Residual"},
+        title="Residuals vs Reference Result",
+        template="plotly_white",
+    )
+    figure.update_traces(
+        marker={
+            "color": METHOD_POINT_COLOR,
+            "size": 7,
+            "opacity": 0.82,
+            "line": {"color": "#ffffff", "width": 0.8},
+        },
+        hovertemplate="Reference=%{x:.3f}<br>Residual=%{y:.3f}<extra></extra>",
+    )
+    figure.add_hline(y=0, line_dash="dash", line_color=METHOD_REFERENCE_COLOR, annotation_text="Zero residual", annotation_position="top left")
+    figure.update_layout(yaxis_tickformat=".2f")
+    return _apply_method_comparison_figure_style(figure)
 
 
 def create_precision_run_chart(analyzed_data: pd.DataFrame) -> go.Figure:
@@ -163,6 +265,79 @@ def create_precision_cv_bar_chart(level_summary: pd.DataFrame) -> go.Figure:
     )
     figure.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
     figure.update_layout(yaxis_title="CV%", uniformtext_minsize=8)
+    return figure
+
+
+def create_precision_variance_component_plot(variance_components: pd.DataFrame) -> go.Figure:
+    """Create a precision component CV% plot by QC level."""
+
+    component_columns = [
+        "Within-Run CV%",
+        "Between-Run CV%",
+        "Between-Day CV%",
+        "Total CV%",
+    ]
+    available_columns = [
+        column for column in component_columns if column in variance_components.columns
+    ]
+    plot_data = variance_components.melt(
+        id_vars=["Level"],
+        value_vars=available_columns,
+        var_name="Precision Component",
+        value_name="CV%",
+    ).dropna(subset=["CV%"])
+    plot_data["Precision Component"] = plot_data["Precision Component"].str.replace(" CV%", "", regex=False)
+
+    figure = px.bar(
+        plot_data,
+        x="Level",
+        y="CV%",
+        color="Precision Component",
+        barmode="group",
+        text="CV%",
+        title="Precision Component Summary",
+        labels={"CV%": "CV (%)"},
+        template="plotly_white",
+    )
+    figure.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+    figure.update_layout(yaxis_title="CV%", uniformtext_minsize=8)
+    return figure
+
+
+def create_precision_run_variation_plot(run_summary: pd.DataFrame) -> go.Figure:
+    """Create run-to-run CV% plot by QC level."""
+
+    figure = px.bar(
+        run_summary,
+        x="Run",
+        y="CV%",
+        color="Level",
+        barmode="group",
+        text="CV%",
+        title="Run-to-Run Variation",
+        labels={"CV%": "CV%", "Run": "Run"},
+        template="plotly_white",
+    )
+    figure.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+    figure.update_layout(yaxis_title="CV%", uniformtext_minsize=8, margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    return figure
+
+
+def create_precision_day_variation_plot(day_summary: pd.DataFrame) -> go.Figure:
+    """Create day-to-day CV% plot by QC level."""
+
+    figure = px.line(
+        day_summary,
+        x="Day",
+        y="CV%",
+        color="Level",
+        markers=True,
+        title="Day-to-Day Variation",
+        labels={"CV%": "CV%", "Day": "Day"},
+        template="plotly_white",
+    )
+    figure.update_traces(line={"width": 2.5}, marker={"size": 9, "line": {"color": "#102a43", "width": 1}})
+    figure.update_layout(yaxis_title="CV%", margin={"l": 70, "r": 40, "t": 70, "b": 65})
     return figure
 
 
@@ -523,7 +698,10 @@ def create_stability_bias_plot(
     return figure
 
 
-def create_condition_difference_plot(condition_comparison: pd.DataFrame) -> go.Figure:
+def create_condition_difference_plot(
+    condition_comparison: pd.DataFrame,
+    acceptance_limit: float | None = None,
+) -> go.Figure:
     """Create a storage-condition difference plot."""
 
     figure = px.line(
@@ -545,6 +723,15 @@ def create_condition_difference_plot(condition_comparison: pd.DataFrame) -> go.F
         annotation_text="Zero difference",
         annotation_position="top left",
     )
+    if acceptance_limit is not None:
+        for y_value in [acceptance_limit, -acceptance_limit]:
+            figure.add_hline(
+                y=y_value,
+                line_dash="dash",
+                line_color="#9467bd",
+                annotation_text=f"{y_value:+.2f} units",
+                annotation_position="top left" if y_value > 0 else "bottom left",
+            )
     figure.update_traces(
         marker={"color": "#2a6f97", "size": 10, "line": {"color": "#102a43", "width": 1}},
         line={"color": "#2a6f97", "width": 2.5},
@@ -640,16 +827,11 @@ def create_accuracy_percent_bias_plot(
         plot_data,
         x="Level",
         y="Percent Bias",
-        color="Review Status",
         title="Percent Bias by Level",
         labels={"Percent Bias": "Percent Bias (%)"},
-        color_discrete_map={
-            "PASS": STATUS_COLOR_MAP["PASS"],
-            "PASS WITH CAUTION": STATUS_COLOR_MAP["PASS WITH CAUTION"],
-            "FAIL": STATUS_COLOR_MAP["FAIL"],
-        },
         template="plotly_white",
     )
+    figure.update_traces(marker_color="#2a6f97", hovertemplate="Level=%{x}<br>Bias=%{y:.2f}%<extra></extra>")
     for y_value in [max_abs_percent_bias, -max_abs_percent_bias]:
         figure.add_hline(
             y=y_value,
@@ -659,7 +841,7 @@ def create_accuracy_percent_bias_plot(
             annotation_position="top left" if y_value > 0 else "bottom left",
         )
     figure.add_hline(y=0, line_color="#808080", line_width=1)
-    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
     return figure
 
 
@@ -696,7 +878,7 @@ def create_accuracy_recovery_plot(
             x=plot_data["Level"],
             y=plot_data["Percent Recovery"],
             mode="markers",
-            name="Review status",
+            name="Recovery",
             marker={
                 "color": plot_data["Review Status"].map(
                     STATUS_COLOR_MAP
@@ -716,7 +898,7 @@ def create_accuracy_recovery_plot(
             annotation_text=f"{y_value:.1f}%",
             annotation_position="top left",
         )
-    figure.update_layout(margin={"l": 70, "r": 40, "t": 70, "b": 65})
+    figure.update_layout(showlegend=False, margin={"l": 70, "r": 40, "t": 70, "b": 65})
     return figure
 
 

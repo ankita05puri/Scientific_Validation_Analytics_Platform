@@ -1,0 +1,19 @@
+Level,Expected_Value,Observed_Value
+Level 1,12,12.4
+Level 1,12,11.8
+Level 1,12,12.2
+Level 2,45,44.2
+Level 2,45,45.6
+Level 2,45,45.1
+Level 3,110,108.7
+Level 3,110,111.4
+Level 3,110,110.2
+Level 4,260,258.3
+Level 4,260,263.0
+Level 4,260,260.8
+Level 5,520,515.4
+Level 5,520,523.6
+Level 5,520,519.2
+Level 6,980,971.0
+Level 6,980,989.4
+Level 6,980,982.1

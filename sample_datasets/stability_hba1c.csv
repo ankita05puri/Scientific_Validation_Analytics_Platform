@@ -1,0 +1,81 @@
+Sample_ID,Timepoint_Hours,Baseline_Result,Current_Result,Storage_Condition
+ST001,0,5.4,5.41,Refrigerated
+ST001,24,5.4,5.4,Refrigerated
+ST001,72,5.4,5.4,Refrigerated
+ST001,168,5.4,5.36,Refrigerated
+ST001,336,5.4,5.38,Refrigerated
+ST001,0,5.4,5.37,Room Temperature
+ST001,24,5.4,5.4,Room Temperature
+ST001,72,5.4,5.43,Room Temperature
+ST001,168,5.4,5.36,Room Temperature
+ST001,336,5.4,5.29,Room Temperature
+ST002,0,5.94,5.92,Refrigerated
+ST002,24,5.94,5.9,Refrigerated
+ST002,72,5.94,5.94,Refrigerated
+ST002,168,5.94,5.95,Refrigerated
+ST002,336,5.94,5.93,Refrigerated
+ST002,0,5.94,5.91,Room Temperature
+ST002,24,5.94,5.95,Room Temperature
+ST002,72,5.94,5.95,Room Temperature
+ST002,168,5.94,5.91,Room Temperature
+ST002,336,5.94,5.86,Room Temperature
+ST003,0,6.49,6.46,Refrigerated
+ST003,24,6.49,6.57,Refrigerated
+ST003,72,6.49,6.46,Refrigerated
+ST003,168,6.49,6.48,Refrigerated
+ST003,336,6.49,6.44,Refrigerated
+ST003,0,6.49,6.5,Room Temperature
+ST003,24,6.49,6.49,Room Temperature
+ST003,72,6.49,6.49,Room Temperature
+ST003,168,6.49,6.42,Room Temperature
+ST003,336,6.49,6.39,Room Temperature
+ST004,0,7.03,7.05,Refrigerated
+ST004,24,7.03,7.03,Refrigerated
+ST004,72,7.03,7.02,Refrigerated
+ST004,168,7.03,7.01,Refrigerated
+ST004,336,7.03,6.99,Refrigerated
+ST004,0,7.03,7.01,Room Temperature
+ST004,24,7.03,7.02,Room Temperature
+ST004,72,7.03,6.98,Room Temperature
+ST004,168,7.03,6.98,Room Temperature
+ST004,336,7.03,6.94,Room Temperature
+ST005,0,7.57,7.58,Refrigerated
+ST005,24,7.57,7.56,Refrigerated
+ST005,72,7.57,7.56,Refrigerated
+ST005,168,7.57,7.59,Refrigerated
+ST005,336,7.57,7.55,Refrigerated
+ST005,0,7.57,7.54,Room Temperature
+ST005,24,7.57,7.55,Room Temperature
+ST005,72,7.57,7.53,Room Temperature
+ST005,168,7.57,7.49,Room Temperature
+ST005,336,7.57,7.38,Room Temperature
+ST006,0,8.11,8.07,Refrigerated
+ST006,24,8.11,8.11,Refrigerated
+ST006,72,8.11,8.07,Refrigerated
+ST006,168,8.11,8.06,Refrigerated
+ST006,336,8.11,8.03,Refrigerated
+ST006,0,8.11,8.18,Room Temperature
+ST006,24,8.11,8.09,Room Temperature
+ST006,72,8.11,8.11,Room Temperature
+ST006,168,8.11,8.07,Room Temperature
+ST006,336,8.11,7.92,Room Temperature
+ST007,0,8.66,8.59,Refrigerated
+ST007,24,8.66,8.65,Refrigerated
+ST007,72,8.66,8.69,Refrigerated
+ST007,168,8.66,8.65,Refrigerated
+ST007,336,8.66,8.61,Refrigerated
+ST007,0,8.66,8.66,Room Temperature
+ST007,24,8.66,8.65,Room Temperature
+ST007,72,8.66,8.61,Room Temperature
+ST007,168,8.66,8.58,Room Temperature
+ST007,336,8.66,8.49,Room Temperature
+ST008,0,9.2,9.2,Refrigerated
+ST008,24,9.2,9.17,Refrigerated
+ST008,72,9.2,9.17,Refrigerated
+ST008,168,9.2,9.15,Refrigerated
+ST008,336,9.2,9.12,Refrigerated
+ST008,0,9.2,9.2,Room Temperature
+ST008,24,9.2,9.18,Room Temperature
+ST008,72,9.2,9.21,Room Temperature
+ST008,168,9.2,9.1,Room Temperature
+ST008,336,9.2,9.05,Room Temperature

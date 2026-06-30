@@ -1,0 +1,121 @@
+Sample_ID,Concentration,Result,Blank_Flag
+BLK001,0.0,0.037,Blank
+BLK002,0.0,0.042,Blank
+BLK003,0.0,0.022,Blank
+BLK004,0.0,0.05,Blank
+BLK005,0.0,0.025,Blank
+BLK006,0.0,0.041,Blank
+BLK007,0.0,0.038,Blank
+BLK008,0.0,0.056,Blank
+BLK009,0.0,0.022,Blank
+BLK010,0.0,0.037,Blank
+BLK011,0.0,0.04,Blank
+BLK012,0.0,0.009,Blank
+BLK013,0.0,0.025,Blank
+BLK014,0.0,0.034,Blank
+BLK015,0.0,0.058,Blank
+BLK016,0.0,0.039,Blank
+BLK017,0.0,0.025,Blank
+BLK018,0.0,0.024,Blank
+BLK019,0.0,0.031,Blank
+BLK020,0.0,0.033,Blank
+BLK021,0.0,0.042,Blank
+BLK022,0.0,0.034,Blank
+BLK023,0.0,0.021,Blank
+BLK024,0.0,0.039,Blank
+BLK025,0.0,0.046,Blank
+BLK026,0.0,0.041,Blank
+BLK027,0.0,0.067,Blank
+BLK028,0.0,0.03,Blank
+BLK029,0.0,0.045,Blank
+BLK030,0.0,0.027,Blank
+LOW001,0.18,0.177,Low Concentration
+LOW002,0.18,0.185,Low Concentration
+LOW003,0.18,0.17,Low Concentration
+LOW004,0.18,0.175,Low Concentration
+LOW005,0.18,0.187,Low Concentration
+LOW006,0.18,0.161,Low Concentration
+LOW007,0.18,0.19,Low Concentration
+LOW008,0.18,0.184,Low Concentration
+LOW009,0.18,0.195,Low Concentration
+LOW010,0.18,0.164,Low Concentration
+LOW011,0.18,0.17,Low Concentration
+LOW012,0.18,0.191,Low Concentration
+LOW013,0.18,0.215,Low Concentration
+LOW014,0.18,0.175,Low Concentration
+LOW015,0.18,0.189,Low Concentration
+LOW016,0.18,0.183,Low Concentration
+LOW017,0.18,0.183,Low Concentration
+LOW018,0.18,0.206,Low Concentration
+LOW019,0.18,0.21,Low Concentration
+LOW020,0.18,0.153,Low Concentration
+LOW021,0.18,0.168,Low Concentration
+LOW022,0.18,0.172,Low Concentration
+LOW023,0.18,0.196,Low Concentration
+LOW024,0.18,0.186,Low Concentration
+LOW025,0.18,0.189,Low Concentration
+LOW026,0.18,0.136,Low Concentration
+LOW027,0.18,0.161,Low Concentration
+LOW028,0.18,0.178,Low Concentration
+LOW029,0.18,0.185,Low Concentration
+LOW030,0.18,0.184,Low Concentration
+Q025-01,0.25,0.252,Quantitation Level
+Q025-02,0.25,0.24,Quantitation Level
+Q025-03,0.25,0.244,Quantitation Level
+Q025-04,0.25,0.259,Quantitation Level
+Q025-05,0.25,0.246,Quantitation Level
+Q025-06,0.25,0.235,Quantitation Level
+Q025-07,0.25,0.258,Quantitation Level
+Q025-08,0.25,0.26,Quantitation Level
+Q025-09,0.25,0.266,Quantitation Level
+Q025-10,0.25,0.235,Quantitation Level
+Q025-11,0.25,0.258,Quantitation Level
+Q025-12,0.25,0.255,Quantitation Level
+Q025-13,0.25,0.25,Quantitation Level
+Q025-14,0.25,0.264,Quantitation Level
+Q025-15,0.25,0.255,Quantitation Level
+Q040-01,0.4,0.392,Quantitation Level
+Q040-02,0.4,0.394,Quantitation Level
+Q040-03,0.4,0.425,Quantitation Level
+Q040-04,0.4,0.44,Quantitation Level
+Q040-05,0.4,0.402,Quantitation Level
+Q040-06,0.4,0.409,Quantitation Level
+Q040-07,0.4,0.39,Quantitation Level
+Q040-08,0.4,0.417,Quantitation Level
+Q040-09,0.4,0.425,Quantitation Level
+Q040-10,0.4,0.374,Quantitation Level
+Q040-11,0.4,0.397,Quantitation Level
+Q040-12,0.4,0.405,Quantitation Level
+Q040-13,0.4,0.367,Quantitation Level
+Q040-14,0.4,0.402,Quantitation Level
+Q040-15,0.4,0.438,Quantitation Level
+Q060-01,0.6,0.595,Quantitation Level
+Q060-02,0.6,0.617,Quantitation Level
+Q060-03,0.6,0.638,Quantitation Level
+Q060-04,0.6,0.61,Quantitation Level
+Q060-05,0.6,0.623,Quantitation Level
+Q060-06,0.6,0.609,Quantitation Level
+Q060-07,0.6,0.583,Quantitation Level
+Q060-08,0.6,0.573,Quantitation Level
+Q060-09,0.6,0.581,Quantitation Level
+Q060-10,0.6,0.585,Quantitation Level
+Q060-11,0.6,0.608,Quantitation Level
+Q060-12,0.6,0.617,Quantitation Level
+Q060-13,0.6,0.598,Quantitation Level
+Q060-14,0.6,0.602,Quantitation Level
+Q060-15,0.6,0.625,Quantitation Level
+Q090-01,0.9,0.928,Quantitation Level
+Q090-02,0.9,0.89,Quantitation Level
+Q090-03,0.9,0.896,Quantitation Level
+Q090-04,0.9,0.899,Quantitation Level
+Q090-05,0.9,0.918,Quantitation Level
+Q090-06,0.9,0.899,Quantitation Level
+Q090-07,0.9,0.882,Quantitation Level
+Q090-08,0.9,0.899,Quantitation Level
+Q090-09,0.9,0.88,Quantitation Level
+Q090-10,0.9,0.912,Quantitation Level
+Q090-11,0.9,0.9,Quantitation Level
+Q090-12,0.9,0.874,Quantitation Level
+Q090-13,0.9,0.906,Quantitation Level
+Q090-14,0.9,0.921,Quantitation Level
+Q090-15,0.9,0.949,Quantitation Level

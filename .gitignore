@@ -49,6 +49,10 @@ outputs/exports/*
 !outputs/reports/.gitkeep
 !outputs/figures/.gitkeep
 !outputs/exports/.gitkeep
+data/execution_state/*
+data/review_packages/*
+!data/execution_state/.gitkeep
+!data/review_packages/.gitkeep
 
 # OS/editor files
 .DS_Store
